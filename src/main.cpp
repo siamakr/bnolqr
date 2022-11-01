@@ -33,8 +33,7 @@ uint16_t BNO055_SAMPLERATE_DELAY_MS = 100;
 Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28);
 
 void printEvent(sensors_event_t* event);
-double zprev;
-int flag = 0; 
+
 void setup(void)
 {
   Serial.begin(19200);
@@ -102,15 +101,7 @@ void printEvent(sensors_event_t* event) {
     Serial.print("Orient:");
     x = event->orientation.x;
     y = event->orientation.y;
-   double ztemp = event->orientation.z;
-    if(zprev <= 0 ){
-      if(ztemp <= 360) flag = 1; 
-    }
-
-    if(flag == 1) z = 0 - (360-z); 
-    if(flag == 0) z = ztemp; 
-
-
+    z = event->orientation.z;
   }
   else if (event->type == SENSOR_TYPE_MAGNETIC_FIELD) {
     Serial.print("Mag:");
