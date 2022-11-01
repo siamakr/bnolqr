@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "../lqr_att_only"
+		},
+		{
+			"name": "bnolqr",
+			"path": "."
+		}
+	],
+	"settings": {}
+}
