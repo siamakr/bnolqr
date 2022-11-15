@@ -29,7 +29,7 @@
 #define ROLL_TVC_CENTER_PWM 1500       //uSec
 #define ROLL_TVC_MAX_PWM 1885          //uSec
 #define ROLL_TVC_MIN_PWM 1060          //uSec
-#define EDF_OFF_PWM 1000              //uSec
+#define EDF_OFF_PWM 900              //uSec
 #define EDF_MIN_PWM 1500              //uSec
 #define EDF_MAX_PWM 2000              //uSec
 #define EDF_MAX_SUSTAINED_PWM 1730    //uSec
@@ -89,23 +89,22 @@ using namespace BLA;
 
 float curr_time, prev_time, dt;
 float previousTime, currentTime, elapsedTime;
-float sensor_timer, control_timer; 
-//float GyroError[2], AccError[2];
+float GyroError[2], AccError[2];
+float magX, magY, magZ;
+float control_timer = 0;
+float sensor_timer = 0;
 
+Matrix<3,1> U; // Output vector
+Matrix<6,1> error; // State error vector
+Matrix<3,6> K; 
+Matrix<6,1> REF; 
+Matrix<6,1> Xs;
 
-//Matrix<3,1> U = {0,0,0}; // Output vector
-//Matrix<6,1> error = {0,0,0,0,0,0}; // State error vector
-Matrix<3,6> K =   {.9119,    0.0000,   -0.0000,   -0.52107,    0.0000,   -0.0000,
-                  0.0000,    0.72119,   -0.0000,   -0.0000,    -0.50107,   -0.0000,
-                  0.0000,   -0.0000,    24.180,   -0.0000,    0.0000,   0.471857};
-Matrix<6,1> REF = {0, 0, 0, 0, 0, 0}; 
-//Matrix<6,1> Xs = {0, 0, 0, 0, 0, 0};
-
-Matrix<3,1> U_red = {0,0,0}; // Output vector
-Matrix<6,1> error_red = {0,0,0,0,0,0}; // State error vector
-Matrix<3,6> K_red = {0, 0, 0, 0, 0, 0,  0, 0, 0, 0, 0, 0,  0, 0, 0, 0, 0, 0}; 
-Matrix<6,1> REF_red = {0, 0, 0, 0, 0, 0}; 
-Matrix<6,1> Xs_red = {0, 0, 0, 0, 0, 0};
+Matrix<4,1> U_red; // Output vector
+Matrix<6,1> error_red; // State error vector
+Matrix<4,6> K_red; 
+Matrix<6,1> REF_red; 
+Matrix<6,1> X_red;
 
 Matrix<6,1> prev;
 
@@ -115,54 +114,26 @@ Servo edf;
 
 typedef struct
 {
-  float roll, pitch, yaw; 
-  float gx, gy, gz;
-  float ax, ay, az; 
-  float lax, lay, laz; 
-  float vx, vy, vz; 
-  float grx, gry, grz; 
-  float x, y, z; 
-  float magx, magy, magz; 
-  float u1, u2, u3, u4; 
-  imu::Vector<3> trq; 
-  imu::Vector<3> T;
-} curr_t;
+float Roll, Pitch, Yaw; 
+float Gx, Gy, Gz; 
+float u1, u2, u3, u4; 
+} data_prev_t;
 
-typedef struct
+typedef struct 
 {
-  float roll, pitch, yaw; 
-  float gx, gy, gz;
+  float Roll, Pitch, Yaw;
+  float Gx, Gy, Gz;
   float ax, ay, az; 
-  float lax, lay, laz; 
   float vx, vy, vz; 
-  float grx, gry, grz; 
   float x, y, z; 
-  float magx, magy, magz; 
-  float u1, u2, u3, u4; 
-  imu::Vector<3> trq; 
-  imu::Vector<3> T;
-} prev_t;
+}data_current_t;
 
-typedef struct
-{
-  float roll, pitch, yaw; 
-  float gx, gy, gz;
-  float ax, ay, az; 
-  float lax, lay, laz; 
-  float vx, vy, vz; 
-  float grx, gry, grz; 
-  float x, y, z; 
-  float magx, magy, magz; 
-  float u1, u2, u3, u4;
-  imu::Vector<3> trq; 
-  imu::Vector<3> T; 
-} pprev_t;
 
 float T[2], torque[2];
   float servoang1, Tmag;
   float servoang2 ;
 
-
+data_prev_t pdata;
 
 // function definitions (will need to add these to the header file but this is just for initial testing puroses to keep everything in one file)
 float limit(float value, float min, float max);
@@ -170,7 +141,6 @@ float d2r(float deg);
 float r2d(float rad);
 void control_attitude(float r, float p, float y, float gx, float gy, float gz);
 void control_attitude_red(float roll, float pitch, float yaw, float gx, float gy, float gz);
-void samplebno(void);
 //void update_IMU(void);
 //void IMU_init(void);
 void calculate_IMU_error(void);
@@ -185,7 +155,6 @@ int omega2pwm(float omega);
 void emergency_check(float r, float p);
 void init_edf(void);
 float servo_rate_check(float new_sample, float old_sample);
-
 
 /* This driver uses the Adafruit unified sensor library (Adafruit_Sensor),
    which provides a common 'type' for sensor data and some helper functions.
@@ -208,21 +177,20 @@ float servo_rate_check(float new_sample, float old_sample);
 */
 
 /* Set the delay between fresh samples */
-uint16_t BNO055_SAMPLERATE_DELAY_MS = 10;
+uint16_t BNO055_SAMPLERATE_DELAY_MS = 20;
 
 // Check I2C device address and correct line below (by default address is 0x29 or 0x28)
 //                                   id, address
 Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28);
 
 void printEvent(sensors_event_t* event);
-//states current, t-1 and t-2 (for filtering)
-curr_t c;
-prev_t p; 
-pprev_t pp; 
+
+     imu::Vector<3> euler ;
+     imu::Vector<3> gyro ;
 
 void setup(void)
 {
-  Serial.begin(9600);
+  Serial.begin(115200);
   Serial.println("Orientation Sensor Test"); Serial.println("");
 
   /* Initialise the sensor */
@@ -232,13 +200,24 @@ void setup(void)
     Serial.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
     while (1);
   }
-
   delay(1000);
-  init_servos();
+ // init_servos();
+
+U = {0,0,0};
+error = {0,0,0,0,0,0};
+REF = {0,0,0,0,0,0};
+Xs = {0,0,0,0,0,0};
+
+U_red = {0,0,0,0};
+error_red = {0,0,0,0,0,0};
+REF_red = {0,0,0,0,0,0};
+X_red = {0,0,0,0,0,0};
+prev = {0,0,0,0,0,0};
 
 
- K= {.9119,    0.0000,   -0.0000,   -0.52107,    0.0000,   -0.0000,
-      0.0000,    0.72119,   -0.0000,   -0.0000,    -0.50107,   -0.0000,
+
+ K= {0.2144,    0.0000,   -0.0000,   -.155537,    0.0000,   -0.0000,
+      0.0000,    0.2144,    0.0000,    0.0000,    -0.15537,    0.0000,
       0.0000,   -0.0000,    24.180,   -0.0000,    0.0000,   0.471857};
 
 init_servos();
@@ -246,66 +225,38 @@ init_edf();
 
 }
 
+
 void loop(void)
 {
-  //could add VECTOR_ACCELEROMETER, VECTOR_MAGNETOMETER,VECTOR_GRAVITY...
-  if(micros() - sensor_timer >= 20000){
-    sensor_timer = micros();
-    samplebno(); 
-  }
+
   
-  if(micros() - control_timer >= 5000){
-    control_timer = micros();
-    control_attitude(d2r(c.roll), d2r(c.pitch), d2r(c.yaw), d2r(c.gx), d2r(c.gy), d2r(c.gz)); 
+  if(millis() - control_timer >= 30){
+    control_timer = millis();
+
+    euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+    gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
   }
+  if(millis() - sensor_timer >= 20){
+    sensor_timer = millis(); 
+    control_attitude(d2r(euler.z()), d2r(euler.y()), d2r(euler.x()), d2r(gyro.z()), d2r(gyro.y()), d2r(gyro.x()));
+    Serial.println(pdata.u4);
+  
 
-
-
-   control_attitude(d2r(euler.z()), d2r(euler.y()), d2r(euler.x()), d2r(gyro.z()), d2r(gyro.y()), d2r(gyro.x()));
-
-  emergency_check(euler.z(), euler.y());
-
-
-delay(BNO055_SAMPLERATE_DELAY_MS);
+  }
+//writeEDF(pdata.u3);
+emergency_check(euler.z(), euler.y());
+//delay(BNO055_SAMPLERATE_DELAY_MS);
 }
 void updatebno(void){
+    //could add VECTOR_ACCELEROMETER, VECTOR_MAGNETOMETER,VECTOR_GRAVITY...
+  sensors_event_t orientationData , angVelocityData , linearAccelData, magnetometerData, accelerometerData, gravityData;
+  bno.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
+  bno.getEvent(&angVelocityData, Adafruit_BNO055::VECTOR_GYROSCOPE);
+  bno.getEvent(&linearAccelData, Adafruit_BNO055::VECTOR_LINEARACCEL);
+  bno.getEvent(&magnetometerData, Adafruit_BNO055::VECTOR_MAGNETOMETER);
+  bno.getEvent(&accelerometerData, Adafruit_BNO055::VECTOR_ACCELEROMETER);
+  bno.getEvent(&gravityData, Adafruit_BNO055::VECTOR_GRAVITY);
 
-  imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
-  imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
-  imu::Vector<3> accel = bno.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
-  imu::Vector<3> linaccel = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
-  imu::Vector<3> grav = bno.getVector(Adafruit_BNO055::VECTOR_GRAVITY);
-  imu::Vector<3> mag = bno.getVector(Adafruit_BNO055::VECTOR_MAGNETOMETER);
-
-//Shift the time state vectors from t-1 to t-2, from t-0 to t-1; 
-
-//shift from "current" (c) state to "previous" (p) state 
-  p.roll = c.roll; p.pitch = c.pitch; p.yaw =  c.yaw;
-  p.gx =  c.gx; p.gy =  c.gy; p.gz =  c.gz;
-  p.ax =  c.ax; p.ay =  c.ay; p.az =  c.az;
-  p.lax =  c.lax; p.lay =  c.lay; p.laz =  c.laz;
-  p.grx =  c.grx; p.gry = c.gry; p.grz =  c.grz;
-  p.magx =  c.magx; p.magy =  c.magy; p.magz =  c.magz;
-
- //shift from "previous state " (p) to "previous-previous state" (pp) 
-  pp.roll = p.roll; pp.pitch = p.pitch; pp.yaw =  p.yaw; 
-  pp.gx =  p.gx; pp.gy =  p.gy; pp.gz =  p.gz;
-  pp.ax =  p.ax; pp.ay =  p.ay; pp.az =  p.az;
-  pp.lax =  p.lax; pp.lay =  p.lay; pp.laz =  p.laz;
-  pp.grx =  p.grx; pp.gry =  p.gry; pp.grz =  p.grz;
-  pp.magx =  p.magx; pp.magy =  p.magy; pp.magz =  p.magz;
-  
-  //Sample IMU and put values into "current state" (c) struct
-  c.roll = euler.z(); c.pitch = euler.y(); c.yaw = euler.x();
-  c.gx = gyro.z(); c.gy = gyro.y(); c.gz = gyro.x();
-  c.ax = accel.z(); c.ay = accel.y(); c.az = accel.x();
-  c.lax = linaccel.z(); c.lay = linaccel.y(); c.laz = linaccel.x();
-  c.grx = grav.z(); c.gry = grav.y(); c.grz = grav.x();
-  c.magx = mag.z(); c.magy = mag.y(); c.magz = mag.x();
-
-
-
-  
 
 
 }
@@ -325,60 +276,53 @@ void calibratebno(void){
   // Serial.println(mag);
 
 }
-void control_attitude(float Roll, float Pitch, float Yaw, float GX, float GY, float GZ){
+void control_attitude(float r, float p, float y, float gx, float gy, float gz){
 
-Matrix<3,1> U = {0,0,0};              // Output vector
-Matrix<6,1> error = {0,0,0,0,0,0};    // State error vector
-Matrix<6,1> Xs = {0, 0, 0, 0, 0, 0};  // Temporary state vector
-  
-  //shifting the control outputs to previous time steps
-  //shift from T-1 (p) to T-2 (pp)
-  pp.u1 = p.u1; pp.u2 = p.u2; pp.u3 = p.u3; pp.u4 = p.u4;
-  pp.trq.x() = p.trq.x(); pp.trq.y() = p.trq.y(); pp.trq.z() = p.trq.z();
-  pp.T.x() = p.T.x(); pp.T.y() = p.T.y(); pp.T.z() = p.T.z();
-  //shift from T (c) to T-1 (p)
-  p.u1 = c.u1; p.u2 = c.u2; p.u3 = c.u3; p.u4 = c.u4;
-  p.trq.x() = c.trq.x(); p.trq.y() = c.trq.y(); p.trq.z() = c.trq.z();
-  p.T.x() = c.T.x(); p.T.y() = c.T.y(); p.T.z() = c.T.z();
-  
-  
-
-  //load Xs state vector with measured values 
-  Xs(0) = Roll;
-  Xs(1) = Pitch;
+  Xs(0) = r;
+  Xs(1) = p;
   Xs(2) = 1;
-  Xs(3) = LPF(GX, prev(0), .94);
-  Xs(4) = LPF(GY, prev(1), .94);
+  Xs(3) = LPF(gx, pdata.Gx, .80);
+  Xs(4) = LPF(gy, pdata.Gy, .80);
   Xs(5) = 0;
   //Xs = {r, p, 0, gx, gy, 0};
   error = Xs-REF; 
   U = -K * error; 
 
   //load desired torque vector
-  c.trq.x() = U(2)*sin(U(0))*COM_TO_TVC;
-  c.trq.y() = U(2)*sin(U(1))*COM_TO_TVC;
-  c.trq.z() = U(2);
+  float tx = U(2)*sin(U(0))*COM_TO_TVC;
+  float ty = U(2)*sin(U(1))*COM_TO_TVC;
+  float tz = U(2);
 
   //load new Thrust Vector from desired torque
-  c.T.x() = trq.x()/COM_TO_TVC; 
-  c.T.y() = -trq.y()/COM_TO_TVC; 
-  c.T.z() = U(2);           //constant for now, should be coming from position controller 
+  float Tx = tx/COM_TO_TVC; 
+  float Ty = -ty/COM_TO_TVC; 
+  float Tz = U(2);           //constant for now, should be coming from position controller 
 
-  //calculate thrust magnitude 
-  c.u3 = sqrt(pow(T.x(),2) + pow(T.y(),2) + pow(T.z(),2)); 
+ float T = sqrt(pow(Tx,2) + pow(Ty,2) + pow(Tz,2)); 
   
   //get servo angles from thrust vector 
-  servoang1 = asin(T.x()/(Tmag - pow(T.y(),2)));
-  servoang2 = asin(T.y()/Tmag);
+   //U(0) = asin(-Tx/(Tmag - pow(Ty,2)));
+   //U(1) = asin(Ty/Tmag);
 
 // float u1temp = averaging(U(1), prev(4));
 // float u2temp = averaging(U(2), prev(5));
-c.u1 = limit(LPF(U(0), p.u1, .45), d2r(-15),d2r(15));
-c.u2 = limit(LPF(U(1), p.u2, .45), d2r(-15),d2r(15)); 
+U(0) = limit(LPF(U(0), pdata.u1, .70), d2r(-15),d2r(15));
+U(1) = limit(LPF(U(1), pdata.u2, .70), d2r(-15),d2r(15)); 
 
- writeXservo(r2d(c.u1));
- writeYservo(r2d(c.u2));
- //writeEDF(Tmag);
+ writeXservo(r2d(U(0)));
+ writeYservo(r2d(U(1)));
+ writeEDF(T);
+
+  pdata.Roll = Xs(0); 
+  pdata.Pitch = Xs(1); 
+  pdata.Yaw = Xs(2);
+  pdata.Gx = Xs(3); 
+  pdata.Gy = Xs(4); 
+  pdata.Gz = Xs(5);
+  pdata.u1 = U(0);
+  pdata.u2 = U(1);
+  pdata.u3 = T;
+
 
 //  Serial.print("r:  ");
 //  Serial.print(r2d(r));
@@ -404,7 +348,12 @@ c.u2 = limit(LPF(U(1), p.u2, .45), d2r(-15),d2r(15));
 //  Serial.println("\t\t");
 
 //shift arrays 
-
+// prev(0) = Xs(3) ; 
+// prev(1) = Xs(4) ; 
+// prev(2) = Xs(5) ; 
+// prev(3) = u1temp ; 
+// prev(4) = u2temp; 
+// prev(5) = 0; 
 
 
 
@@ -528,19 +477,41 @@ void init_servos(void){
   //Zero Servos 
   writeXservo(0);
   writeYservo(0);
+
+  // //servo circle 
+  // writeXservo(-15);
+  // for (int i = -15; i =15; i++)
+  // {
+  //   writeXservo(i);
+  //   if(i<0) writeYservo(i+15);
+  //   if(i>=0) writeYservo(15-i);
+  //   delay(30);
+
+  // }
+  // delay(1000);
+  // //Zero Servos 
+  // writeXservo(0);
+  // writeYservo(0);
+  // delay(500); 
+
+  
 }
 
 void init_edf(void){
   edf.attach(9);
-  delay(20);
+  delay(200);
 
   //initialize the edf motor and run it at 1500us for 5 seconds to initialize the govenor mode to linearize the throttle curve. 
   edf.writeMicroseconds(EDF_OFF_PWM); 
-  delay(200);
+  delay(2000);
 
   //go to 1500 and wait 5 seconds
   edf.writeMicroseconds(EDF_MIN_PWM);
   delay(5000);
+
+
+  //TODO:
+  //INIT SERVO FOR 5 SEC AT 1500 IDLE PWM US9
 }
 
 void writeXservo(float angle){
@@ -568,6 +539,9 @@ void writeEDF(float Ft){
 //  Serial.print(pwm);
 //  Serial.print("\t");
   //write to edf servo  
+  pdata.u4 = pwm;
+  edf.writeMicroseconds(pwm);
+
 }
 
 float ft2omega(float Ft){
@@ -579,7 +553,7 @@ int omega2pwm(float omega){
 }
 
 void emergency_check(float r, float p){
-  if(r >= 45 || r <=-45 || p >= 45 || p <= -45){
+  if(r >= 30 || r <=-30 || p >= 30 || p <= -30){
     writeEDF(0); 
     writeXservo(0);
     writeYservo(0);
