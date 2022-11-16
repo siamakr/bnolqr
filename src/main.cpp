@@ -16,9 +16,11 @@
 #define X 0
 #define Y 1
 #define Z 2
-#define SERVO_MAX_SEC_PER_DEG 0.001667
+#define SERVO_MAX_SEC_PER_DEG 0.001667      //dt/.001667 |(dt=0.1) = 6º
+#define SERVO_MAX_SEC_PER_DEG 0.003333      //dt/.003333 |(dt=0.1) = 3º
 #define DT .01
 #define SERVO_MAX_DEGREE_PER_DT 12
+#define MAX_VEHICLE_ANGLE_DEG 35
 
 //PITCH // max: 1862 //min: 1162       //mid:1512       //mid:1512
 //ROLL: max:L 1725  //min:1207  //mid: 1412
@@ -94,17 +96,19 @@ float magX, magY, magZ;
 float control_timer = 0;
 float sensor_timer = 0;
 
-Matrix<3,1> U; // Output vector
-Matrix<6,1> error; // State error vector
-Matrix<3,6> K; 
-Matrix<6,1> REF; 
-Matrix<6,1> Xs;
+Matrix<3,1> U = {0,0,0}; // Output vector
+Matrix<6,1> error {0,0,0,0,0,0}; // State error vector
+Matrix<3,6> K = {  2.6003,    0.0000,   -0.0000,   -0.1040,    0.0000,   -0.0000,
+                    0.0000,   2.6003,    0.0000,   -0.0000,   -0.1040,    0.0000,
+                    0.0000,   -0.0000,    24.80,   -0.0000,    0.0000,   0.471857}; 
+Matrix<6,1> REF = {0,0,0,0,0,0}; 
+Matrix<6,1> Xs = {0,0,0,0,0,0};
 
-Matrix<4,1> U_red; // Output vector
-Matrix<6,1> error_red; // State error vector
-Matrix<4,6> K_red; 
-Matrix<6,1> REF_red; 
-Matrix<6,1> X_red;
+// Matrix<4,1> U_red; // Output vector
+// Matrix<6,1> error_red; // State error vector
+// Matrix<4,6> K_red; 
+// Matrix<6,1> REF_red; 
+// Matrix<6,1> X_red;
 
 Matrix<6,1> prev;
 
@@ -154,36 +158,16 @@ float ft2omega(float Ft);
 int omega2pwm(float omega);
 void emergency_check(float r, float p);
 void init_edf(void);
-float servo_rate_check(float new_sample, float old_sample);
+float servoRateLimit(float new_sample, float old_sample);
 
-/* This driver uses the Adafruit unified sensor library (Adafruit_Sensor),
-   which provides a common 'type' for sensor data and some helper functions.
-   To use this driver you will also need to download the Adafruit_Sensor
-   library and include it in your libraries folder.
-   You should also assign a unique ID to this sensor for use with
-   the Adafruit Sensor API so that you can identify this particular
-   sensor in any data logs, etc.  To assign a unique ID, simply
-   provide an appropriate value in the constructor below (12345
-   is used by default in this example).
-   Connections
-   ===========
-   Connect SCL to analog 5
-   Connect SDA to analog 4
-   Connect VDD to 3.3-5V DC
-   Connect GROUND to common ground
-   History
-   =======
-   2015/MAR/03  - First release (KTOWN)
-*/
 
 /* Set the delay between fresh samples */
-uint16_t BNO055_SAMPLERATE_DELAY_MS = 20;
+uint16_t BNO055_SAMPLERATE_DELAY_MS = 50;
 
 // Check I2C device address and correct line below (by default address is 0x29 or 0x28)
 //                                   id, address
 Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28);
 
-void printEvent(sensors_event_t* event);
 
      imu::Vector<3> euler ;
      imu::Vector<3> gyro ;
@@ -203,61 +187,55 @@ void setup(void)
   delay(1000);
  // init_servos();
 
-U = {0,0,0};
-error = {0,0,0,0,0,0};
-REF = {0,0,0,0,0,0};
-Xs = {0,0,0,0,0,0};
-
-U_red = {0,0,0,0};
-error_red = {0,0,0,0,0,0};
-REF_red = {0,0,0,0,0,0};
-X_red = {0,0,0,0,0,0};
+// U_red = {0,0,0,0};
+// error_red = {0,0,0,0,0,0};
+// REF_red = {0,0,0,0,0,0};
+// X_red = {0,0,0,0,0,0};
 prev = {0,0,0,0,0,0};
 
 
 
- K= {0.2144,    0.0000,   -0.0000,   -.155537,    0.0000,   -0.0000,
-      0.0000,    0.2144,    0.0000,    0.0000,    -0.15537,    0.0000,
-      0.0000,   -0.0000,    24.180,   -0.0000,    0.0000,   0.471857};
-
 init_servos();
-init_edf();
+//init_edf();
 
 }
 
 
 void loop(void)
 {
+  //    prev_time = curr_time;
+  //  curr_time = millis();
+  //  dt = (curr_time - prev_time) / 1000;
+  // Serial.print(dt,7); 
+  // Serial.println("\t");
 
+  // euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+  // gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
+   //control_attitude(d2r(euler.z()), d2r(euler.y()), d2r(euler.x()), gyro.z(), gyro.y(), gyro.x());
   
-  if(millis() - control_timer >= 30){
+  
+  if(millis() - control_timer >= 1){
     control_timer = millis();
 
     euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
     gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
+    //control_attitude(d2r(euler.z()), d2r(euler.y()), d2r(euler.x()), gyro.z(), gyro.y(), gyro.x());
   }
-  if(millis() - sensor_timer >= 20){
+  if(millis() - sensor_timer >= 1){
     sensor_timer = millis(); 
     control_attitude(d2r(euler.z()), d2r(euler.y()), d2r(euler.x()), d2r(gyro.z()), d2r(gyro.y()), d2r(gyro.x()));
-    Serial.println(pdata.u4);
+    //Serial.println(pdata.u4);
   
 
-  }
+   }
+    writeXservo(r2d(U(0)));
+ writeYservo(r2d(U(1)));
+ writeEDF(U(3));
 //writeEDF(pdata.u3);
-emergency_check(euler.z(), euler.y());
+//emergency_check(euler.z(), euler.y());
 //delay(BNO055_SAMPLERATE_DELAY_MS);
 }
 void updatebno(void){
-    //could add VECTOR_ACCELEROMETER, VECTOR_MAGNETOMETER,VECTOR_GRAVITY...
-  sensors_event_t orientationData , angVelocityData , linearAccelData, magnetometerData, accelerometerData, gravityData;
-  bno.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
-  bno.getEvent(&angVelocityData, Adafruit_BNO055::VECTOR_GYROSCOPE);
-  bno.getEvent(&linearAccelData, Adafruit_BNO055::VECTOR_LINEARACCEL);
-  bno.getEvent(&magnetometerData, Adafruit_BNO055::VECTOR_MAGNETOMETER);
-  bno.getEvent(&accelerometerData, Adafruit_BNO055::VECTOR_ACCELEROMETER);
-  bno.getEvent(&gravityData, Adafruit_BNO055::VECTOR_GRAVITY);
-
-
 
 }
 
@@ -281,8 +259,8 @@ void control_attitude(float r, float p, float y, float gx, float gy, float gz){
   Xs(0) = r;
   Xs(1) = p;
   Xs(2) = 1;
-  Xs(3) = LPF(gx, pdata.Gx, .80);
-  Xs(4) = LPF(gy, pdata.Gy, .80);
+  Xs(3) = LPF(gx, pdata.Gx, .95);
+  Xs(4) = LPF(gy, pdata.Gy, .95);
   Xs(5) = 0;
   //Xs = {r, p, 0, gx, gy, 0};
   error = Xs-REF; 
@@ -298,7 +276,7 @@ void control_attitude(float r, float p, float y, float gx, float gy, float gz){
   float Ty = -ty/COM_TO_TVC; 
   float Tz = U(2);           //constant for now, should be coming from position controller 
 
- float T = sqrt(pow(Tx,2) + pow(Ty,2) + pow(Tz,2)); 
+ U(3) = sqrt(pow(Tx,2) + pow(Ty,2) + pow(Tz,2)); 
   
   //get servo angles from thrust vector 
    //U(0) = asin(-Tx/(Tmag - pow(Ty,2)));
@@ -306,12 +284,17 @@ void control_attitude(float r, float p, float y, float gx, float gy, float gz){
 
 // float u1temp = averaging(U(1), prev(4));
 // float u2temp = averaging(U(2), prev(5));
-U(0) = limit(LPF(U(0), pdata.u1, .70), d2r(-15),d2r(15));
-U(1) = limit(LPF(U(1), pdata.u2, .70), d2r(-15),d2r(15)); 
+U(0) = servoRateLimit(U(0), pdata.u1);
+U(1) = servoRateLimit(U(1), pdata.u2);
 
- writeXservo(r2d(U(0)));
- writeYservo(r2d(U(1)));
- writeEDF(T);
+U(0) = limit(LPF(U(0), pdata.u1, .95), d2r(-15),d2r(15));
+U(1) = limit(LPF(U(1), pdata.u2, .95), d2r(-15),d2r(15)); 
+
+
+
+//  writeXservo(r2d(U(0)));
+//  writeYservo(r2d(U(1)));
+//  //writeEDF(T);
 
   pdata.Roll = Xs(0); 
   pdata.Pitch = Xs(1); 
@@ -321,7 +304,7 @@ U(1) = limit(LPF(U(1), pdata.u2, .70), d2r(-15),d2r(15));
   pdata.Gz = Xs(5);
   pdata.u1 = U(0);
   pdata.u2 = U(1);
-  pdata.u3 = T;
+  pdata.u3 = U(3);
 
 
 //  Serial.print("r:  ");
@@ -359,33 +342,7 @@ U(1) = limit(LPF(U(1), pdata.u2, .70), d2r(-15),d2r(15));
 
 }
 void control_attitude_red(float roll, float pitch, float yaw, float gx, float gy, float gz){
-  //X < roll, pitch, yaw, gx, gy, gz; 
-  X_red(1) = roll;
-  X_red(2) = pitch;
-  X_red(3) = 0;
-  X_red(4) = gx;
-  X_red(5) = gy;
-  X_red(6) = gz;
-  
-  error_red = X_red - REF_red; 
-  U_red = -K_red * error_red; 
 
-//  U_red(1) = limit(U_red(1), -15, 15);
-//  U_red(2) = limit(U_red(2), -15, 15); 
-
- Serial.print("u1: ");
- Serial.print(U_red(3));
- Serial.print("\t");
-  Serial.print("edf2: ");
- Serial.print(U_red(4));
- Serial.print("\t");
- Serial.print("servo1: ");
- Serial.print(U_red(1));
- Serial.print("\t");
- Serial.print("servo2: ");
- Serial.print(U_red(2));
- Serial.print("\t");
-//  Serial.println("");
 
 }
 
@@ -473,33 +430,17 @@ float averaging(float new_sample, float old_sample){
 void init_servos(void){
   sx.attach(11);
   sy.attach(10);
+  edf.attach(9);
+  delay(200);
 
   //Zero Servos 
   writeXservo(0);
   writeYservo(0);
 
-  // //servo circle 
-  // writeXservo(-15);
-  // for (int i = -15; i =15; i++)
-  // {
-  //   writeXservo(i);
-  //   if(i<0) writeYservo(i+15);
-  //   if(i>=0) writeYservo(15-i);
-  //   delay(30);
 
-  // }
-  // delay(1000);
-  // //Zero Servos 
-  // writeXservo(0);
-  // writeYservo(0);
-  // delay(500); 
-
-  
 }
 
 void init_edf(void){
-  edf.attach(9);
-  delay(200);
 
   //initialize the edf motor and run it at 1500us for 5 seconds to initialize the govenor mode to linearize the throttle curve. 
   edf.writeMicroseconds(EDF_OFF_PWM); 
@@ -508,10 +449,6 @@ void init_edf(void){
   //go to 1500 and wait 5 seconds
   edf.writeMicroseconds(EDF_MIN_PWM);
   delay(5000);
-
-
-  //TODO:
-  //INIT SERVO FOR 5 SEC AT 1500 IDLE PWM US9
 }
 
 void writeXservo(float angle){
@@ -535,10 +472,7 @@ void writeYservo(float angle){
 void writeEDF(float Ft){
   float omega = (Ft - RAD2N_P2)/RAD2N_P1; 
   int pwm =round(omega * RAD2PWM_P1 + RAD2PWM_P2); 
-//   Serial.print("pwmedf: ");
-//  Serial.print(pwm);
-//  Serial.print("\t");
-  //write to edf servo  
+ 
   pdata.u4 = pwm;
   edf.writeMicroseconds(pwm);
 
@@ -553,19 +487,26 @@ int omega2pwm(float omega){
 }
 
 void emergency_check(float r, float p){
-  if(r >= 30 || r <=-30 || p >= 30 || p <= -30){
+  if(r >= MAX_VEHICLE_ANGLE_DEG || r <= -MAX_VEHICLE_ANGLE_DEG || p >= MAX_VEHICLE_ANGLE_DEG || p <= -MAX_VEHICLE_ANGLE_DEG){
     writeEDF(0); 
     writeXservo(0);
     writeYservo(0);
     while(1);
+    Serial.println("Max attitude angle reached....  "); 
+    Serial.println("Vehicle is in SAFE-MODE... must restart...."); 
   }
 }
 
-float servo_rate_check(float new_sample, float old_sample){
-  float temp; 
-  if(new_sample > old_sample + d2r(SERVO_MAX_DEGREE_PER_DT)) temp = old_sample + d2r(SERVO_MAX_DEGREE_PER_DT);
-  if(new_sample <= old_sample - d2r(SERVO_MAX_DEGREE_PER_DT)) temp = old_sample - d2r(SERVO_MAX_DEGREE_PER_DT);
-  return temp; 
-
+float servoRateLimit(float new_sample, float old_sample){
+  float deg_per_step = .4 * 1 ;    //should be 0.6
+  if(new_sample > old_sample + d2r(deg_per_step)){ 
+    return old_sample + d2r(deg_per_step);
+  } else {
+    if(new_sample < old_sample - d2r(deg_per_step)) {
+      return old_sample - d2r(deg_per_step);
+    } else { 
+      return new_sample;
+    }
+  }
 }
 
