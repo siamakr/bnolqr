@@ -76,14 +76,15 @@ float curr_time, prev_time, dt;
 float previousTime, currentTime, elapsedTime;
 float control_timer{0};
 float sensor_timer{0};
-float mst{0};     //Mission Start Time (mS)
-float met{0};     //Mission Elapsed Time (mS)
 
 Matrix<3,1> U = {0,0,0}; // Output vector
 Matrix<6,1> error {0,0,0,0,0,0}; // State error vector
-Matrix<3,6> K = {  0.0000000040003,    0.0000,    0.0000,   0.28001,    0.0000,    0.0000,
-                  -0.0000,    0.2085,    0.0000,   0.0000,    -0.1061,    0.0000,
+Matrix<3,6> K = {  1.20803,    0.0000,    0.0000,   -0.10601,    0.0000,    0.0000,
+                  -0.0000,    1.2085,    0.0000,   0.0000,    -0.1061,    0.0000,
                    0.0000,   -0.0000,    24.80,   -0.0000,    0.0000,   0.471857}; 
+             //      Matrix<3,6> K = {  0.40003,    0.0000,    0.0000,   -0.28001,    0.0000,    0.0000,
+             //     -0.0000,    0.2085,    0.0000,   0.0000,    -0.1061,    0.0000,
+              //     0.0000,   -0.0000,    24.80,   -0.0000,    0.0000,   0.471857}; 
 Matrix<6,1> REF = {0,0,0,0,0,0}; 
 Matrix<6,1> Xs = {0,0,0,0,0,0};
 
@@ -97,7 +98,6 @@ float Roll, Pitch, Yaw;
 float Gx, Gy, Gz;
 float Gxf, Gyf, Gzf; 
 float u1, u2, u3, u4; 
-float timestamp;
 } data_prev_t;
 
 typedef struct 
@@ -137,8 +137,6 @@ void init_edf(void);
 float servoRateLimit(float new_sample, float old_sample);
 float IIR( float newSample, float prevOutput, float alpha);
 float deadband(float new_sample, float old_sample);
-void initbno(void);
-void samplebno(void); 
 
 
 /* Set the delay between fresh samples */
@@ -178,10 +176,8 @@ init_servos();
 delay(100);
 //init_edf();
 bno.setExtCrystalUse(true);
-//bno.setAxisRemap(bno.REMAP_CONFIG_P2);
+bno.setAxisRemap(Adafruit_BNO055::REMAP_CONFIG_P1);       //P1 is supposed to be default but let's see. 
 delay(500);
-
-mst = millis(); 
 
 }
 
@@ -201,26 +197,45 @@ void loop(void)
 //   Serial.println("\t");
   
   //interval of how fast to update servos.. in microseconds 
-  dt = 20.00f;    //mS
+  dt = 10.00f;    //mS
 
   
   if(millis() - sensor_timer >= 20){
     sensor_timer = millis();
       //read BNO values and load it into imu::Vector<3> euler and imu::Vector<3> gyro 
-    euler.x() = bno.getVector(Adafruit_BNO055::VECTOR_EULER).z();
-    euler.y() = bno.getVector(Adafruit_BNO055::VECTOR_EULER).y();
-    euler.z() = bno.getVector(Adafruit_BNO055::VECTOR_EULER).x();
-   
-    gyro.x() = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE).z();
-    gyro.y() = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE).y();
-    gyro.z() = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE).x();
-    
+    euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+    gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
+   // gyro.z() = -gyro.z();
+
 
     //load temp vector to convert degrees to radians and switch z and x axis (orientation of imu) 
-    ef_r = {d2r(euler.x()-18.75f), d2r(euler.y()), d2r(euler.z())};
+    ef_r = {d2r(euler.z()-18.75), d2r(euler.y()), d2r(euler.x())};
 
     //load temp vecot to IIR filter the gyro values 
-     gf_r = {IIR(d2r(gyro.x()), pdata.Gx, 0.55), IIR(d2r(gyro.y()), pdata.Gy, 0.55), IIR(d2r(gyro.z()), pdata.Gz, 0.55)};
+     gf_r = {IIR(d2r(gyro.x()), pdata.Gx, 0.75), IIR(d2r(gyro.y()), pdata.Gy, 0.75), IIR(d2r(gyro.x()), pdata.Gz, 0.55)};
+    // load temp vector to LPF filter of gyro values (not working rn, IIR filter doing a great job so far)
+   // gflpr_r = {LPF(d2r(gyro.x()), pdata.Gxf, pdata.Gx), LPF(d2r(gyro.y()), pdata.Gyf, pdata.Gy), LPF(d2r(gyro.z()), pdata.Gzf, pdata.Gz)};
+
+//     Serial.print("gxr:  ");
+// Serial.print(r2d(gf_r.x()));
+// Serial.print("\t");
+//      Serial.print("r:  ");
+// Serial.print(r2d(ef_r.x()));
+// Serial.print("\t");
+//// Serial.print("gyr:  ");
+//// Serial.print(r2d(gf_r.y()));
+//// Serial.print("\t");Ò
+//      Serial.print("gx:  ");
+// Serial.print(gyro.x());
+// Serial.print("\t");
+//// Serial.print("gyr:  ");
+//// Serial.print(r2d(gyro.y()));
+//// Serial.print("\t");
+//   Serial.println("\t");
+
+      pdata.Gx = gf_r.x(); 
+      pdata.Gy = gf_r.y(); 
+      pdata.Gz = gf_r.z();
     
   }
 
@@ -233,107 +248,101 @@ void loop(void)
     //delay(2);
   }
 
-  // set response tests
-  //TODO: -must record relavent data to import into MATLAB for analysis
-  //      -use the data to develop transfer function of actuators 
-  //      -use TF to develop SIMULINK model and better develop LQR gains and Q and R matricies. 
-  //if(mst + millis() >= 7000) REF = {d2r(5.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.00f};
-  //if(mst + millis() >= 15000) REF = {d2r(-5.00f), 0.00f, 0.00f, 0.00f, 0.00f, 0.00f};
-  //if(mst + millis() >= 20000) REF = {d2r(2.00f), d2r(-5.00f), 0.00f, 0.00f, 0.00f, 0.00f};
-  //if(mst + millis() >= 26000) REF = {d2r(5.00f), d2r(5.00f), 0.00f, 0.00f, 0.00f, 0.00f};
-  
+//writeEDF(pdata.u3);
+//emergency_check(euler.z(), euler.y());
+//delay(BNO055_SAMPLERATE_DELAY_MS);
 }
-void samplebno(void){
-  //read BNO values and load it into imu::Vector<3> euler and imu::Vector<3> gyro 
-  //switching z and x axes given mounting orientation
-  euler.x() = bno.getVector(Adafruit_BNO055::VECTOR_EULER).z();
-  euler.y() = bno.getVector(Adafruit_BNO055::VECTOR_EULER).y();
-  euler.z() = bno.getVector(Adafruit_BNO055::VECTOR_EULER).x();
-  //switching z and x axes  
-  gyro.x() = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE).z();
-  gyro.y() = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE).y();
-  gyro.z() = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE).x();
-  
-  //load temp vector to convert degrees to radians and switch z and x axis (orientation of imu) 
-  ef_r = {d2r(euler.x()-18.75f), d2r(euler.y()), d2r(euler.z())};
-
-  //load temp vecot to IIR filter the gyro values 
-  gf_r = {IIR(d2r(gyro.x()), pdata.Gx, 0.55), IIR(d2r(gyro.y()), pdata.Gy, 0.55), IIR(d2r(gyro.z()), pdata.Gz, 0.55)};  
-
+void updatebno(void){
+//will put al BNO stuff here later 
 }
 
-void initbno(void){
+void calibratebno(void){
 
-Serial.println("Orientation Sensor Test"); Serial.println("");
-
-  /* Initialise the sensor */
-  if (!bno.begin())
-  {
-    /* There was a problem detecting the BNO055 ... check your connections */
-    Serial.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
-    while (1);
-  }
-  delay(1000);
-
-bno.setExtCrystalUse(true);
-//change axes orientation
-bno.setAxisRemap(Adafruit_BNO055::REMAP_CONFIG_P1);       //P1 is supposed to be default but let's see. 
-//change axes sign 
-bno.setAxisSign(Adafruit_BNO055::REMAP_SIGN_P1);
 
 }
 void control_attitude(float r, float p, float y, float gx, float gy, float gz){
 
+//  Xs(0) = r;
+//  Xs(1) = p;
+//  Xs(2) = 1;
+//  Xs(3) = gx;
+//  Xs(4) = gy;
+//  Xs(5) = 0;
+
+
+
 //load state vecotr 
   Xs = {r, p, 1.00f, gx, gy, 0};
 
-//run controller 
-error = Xs-REF; 
-U = -K * error; 
+//   Serial.print("r:  ");
+// Serial.print(r2d(Xs(0)));
+// Serial.print("\t");
+//  Serial.print("p:  ");
+// Serial.print(r2d(Xs(1)));
+// Serial.print("\t");
+//  Serial.print("gx:  ");
+// Serial.print(r2d(Xs(3)));
+// Serial.print("\t");
+//  Serial.print("r:  ");
+// Serial.print(r2d(Xs(4)));
+// Serial.print("\t");
 
-//load desired torque vector
+  //run controller 
+  error = Xs-REF; 
+  U = -K * error; 
+
+//    Serial.print("ang1: ");
+//  Serial.print(r2d(U(0)));
+//  Serial.print("\t");
+// Serial.print("ang2: ");
+// Serial.print(r2d(U(1)));
+// Serial.print("\t");
+
+  //load desired torque vector
 //  float tx = U(2)*sin(U(0))*COM_TO_TVC;
 //  float ty = U(2)*sin(U(1))*COM_TO_TVC;
 //  float tz = U(2);
 
   //load new Thrust Vector from desired torque
-float Tx{U(2)*sin(U(0))}; 
-float Ty{-U(2)*sin(U(1))*cos(U(0))}; 
-float Tz{U(2)};           //constant for now, should be coming from position controller 
+  float Tx{U(2)*sin(U(0))}; 
+  float Ty{-U(2)*sin(U(1))*cos(U(0))}; 
+  float Tz{U(2)};           //constant for now, should be coming from position controller 
 
-//calculation Magnitude of thrust in Newtons for EDF 
-Tmag = sqrt(pow(Tx,2) + pow(Ty,2) + pow(Tz,2)); 
+ Tmag = sqrt(pow(Tx,2) + pow(Ty,2) + pow(Tz,2)); 
   
-//different way to deduce servo angles from body forces (got this from a paper I can send you)
-//U(0) = asin(-Tx/(Tmag - pow(Ty,2)));
-//U(1) = asin(Ty/Tmag);
+  //different way to deduce servo angles from body forces (got this from a paper I can send you)
+   //U(0) = asin(-Tx/(Tmag - pow(Ty,2)));
+   //U(1) = asin(Ty/Tmag);
 
-//testing the averaging filter (too slow)
-//float u1temp = averaging(U(1), prev(4));
-//float u2temp = averaging(U(2), prev(5));
+// float u1temp = averaging(U(1), prev(4));
+// float u2temp = averaging(U(2), prev(5));
 
 //deadband 
 //U(0) = deadband(U(0), pdata.u1);
 //U(1) = deadband(U(1), pdata.u2);
 
 //limit the speed of servos
-//U(0) = servoRateLimit(U(0), pdata.u1);
-//U(1) = servoRateLimit(U(1), pdata.u2);
+U(0) = servoRateLimit(U(0), pdata.u1);
+U(1) = servoRateLimit(U(1), pdata.u2);
 
 //filter servo angles, the more filtering, the bigger the delay 
-U(0) = IIR(U(0), pdata.u1, .10);
-U(1) = IIR(U(1), pdata.u2, .10); 
+U(0) = IIR(U(0), pdata.u1, .20);
+U(1) = IIR(U(1), pdata.u2, .20); 
 
 //limit servo angles to +-15º
 U(0) = limit(U(0), d2r(-15), d2r(15));
 U(1) = limit(U(1), d2r(-15), d2r(15)); 
 
-//actuate both servos
-writeXservo(r2d(U(0)));
-writeYservo(r2d(U(1)));
 
-//change thrust 
-writeEDF(Tmag);
+
+ writeXservo(r2d(U(0)));
+  //delay(.5);
+ writeYservo(r2d(U(1)));
+//delay(.5);
+ writeEDF(Tmag);
+
+
+
 //
 // Serial.print("r:  ");
 // Serial.print(r2d(r));
@@ -376,15 +385,15 @@ writeEDF(Tmag);
   pdata.Roll = r; 
   pdata.Pitch = p; 
   pdata.Yaw = y;
-  pdata.Gx = gx; 
-  pdata.Gy = gy; 
-  pdata.Gz = gz;
   pdata.Gxf = gyro.z();
   pdata.Gyf = gyro.y();
   pdata.Gzf = gyro.x();
   pdata.u1 = U(0);
   pdata.u2 = U(1);
   pdata.u3 = U(2);
+
+
+
 }
 void control_attitude_red(float roll, float pitch, float yaw, float gx, float gy, float gz){
 
@@ -430,23 +439,23 @@ float averaging(float new_sample, float old_sample){
 
 
 void init_servos(void){
-  //attach GPIO pins to servos
   sx.attach(11);
   sy.attach(10);
-  //attach GPIO pin to EDF ESC 
   edf.attach(9, 1000, 2000);
   delay(200);
 
   //Zero Servos 
   writeXservo(0);
   writeYservo(0);
+
+
 }
 
 void init_edf(void){
 
   //initialize the edf motor and run it at 1500us for 5 seconds to initialize the govenor mode to linearize the throttle curve. 
   edf.writeMicroseconds(EDF_OFF_PWM); 
-  delay(200);
+  delay(2000);
 
   //go to 1500 and wait 5 seconds
   edf.writeMicroseconds(EDF_MIN_PWM);
@@ -512,21 +521,22 @@ void emergency_check(float r, float p){
 //actuate with respect to the loop time or DT. I am getting around 3-6degrees per 0.001 second. 
 //servo: 0.1s/60º  or 0.001667s/1º 
 float servoRateLimit(float new_sample, float old_sample){
-  float maxSteps{d2r( (dt) / SERVO_MAX_SEC_PER_DEG) };
+  float maxSteps{(dt)/SERVO_MAX_SEC_PER_DEG};
   float temp{new_sample};
 
-    if(new_sample >= old_sample + maxSteps) temp = old_sample + maxSteps;
-    if(new_sample <= old_sample - maxSteps) temp = old_sample - maxSteps; 
+  if(new_sample >= old_sample + maxSteps) temp = old_sample + maxSteps;
+  if(new_sample <= old_sample - maxSteps) temp = old_sample - maxSteps; 
 
   return temp; 
 }
 
 //new_sample and prev_sample are in radians 
 float deadband(float new_sample, float old_sample){
-  float db_angle{d2r(0.0010f)};      //deadband angle is 0.001 degrees 
-  float temp{0};                     // temp value to return 
+  float db_angle{d2r(0.10f)};      //deadband angle is 0.1 degrees 
+  float temp{0};
   
-    if(abs(old_sample - new_sample) <= db_angle ) temp = new_sample; 
+  if(abs(old_sample - new_sample) <= db_angle ) temp = new_sample; 
+  
 
   return temp;
 
