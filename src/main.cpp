@@ -124,6 +124,10 @@ float T[2], torque[2];
   float mst{0.0f};
   bool startFlag{false};
 
+  //define the calibration struct for BNO055
+
+
+
 // function definitions (will need to add these to the header file but this is just for initial testing puroses to keep everything in one file)
 float limit(float value, float min, float max);
 float d2r(float deg);
@@ -173,27 +177,46 @@ void setup(void)
 {
   Serial.begin(115200);
   Serial.println("Orientation Sensor Test"); Serial.println("");
- // bno.begin();
+  bno.begin(OPERATION_MODE_NDOF);
+  bno.setExtCrystalUse(true);
 
+  //Load the experimentally gathered calibration values into the offset struct
+  adafruit_bno055_offsets_t bnoOffset{0};
+  //acceleration 
+  bnoOffset.accel_offset_x = -20;
+  bnoOffset.accel_offset_y = -176;
+  bnoOffset.accel_offset_z = -33;
+  //mag 
+  bnoOffset.mag_offset_x = 6465;
+  bnoOffset.mag_offset_y = -2144;
+  bnoOffset.mag_offset_z = -724;
+  //gyro
+  bnoOffset.gyro_offset_x = -1;
+  bnoOffset.gyro_offset_y = -1;
+  bnoOffset.gyro_offset_z = -1;
+  //radii
+  bnoOffset.accel_radius = -1000;
+  bnoOffset.mag_radius = -776;
+
+  delay(20);
+  
   /* Initialise the sensor */
-  if (!bno.begin())
+  if (!bno.begin(OPERATION_MODE_NDOF))
   {
     /* There was a problem detecting the BNO055 ... check your connections */
     Serial.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
     while (1);
   }
-    calibratebno();
+  //Load the offsets into the BNO055 offset registers 
+  bno.setSensorOffsets(bnoOffset); 
   delay(1000);
 
 
-init_servos();
-delay(100);
-init_edf();
-//bno.setExtCrystalUse(true);
-//bno.setAxisRemap(Adafruit_BNO055::REMAP_CONFIG_P1);       //P1 is supposed to be default but let's see. 
-delay(500);
-
-
+  init_servos();
+  delay(100);
+  init_edf();
+  //bno.setAxisRemap(Adafruit_BNO055::REMAP_CONFIG_P1);       //P1 is supposed to be default but let's see. 
+  //delay(500);
 
 }
 
@@ -214,13 +237,15 @@ void loop(void)
 
   //run this statement once when loop start to grab the start time with millis()
   if(startFlag == false){
-    mst = millis(); 
+    //mst = mission start time
+    mst = millis();   
     startFlag = true;
   }
   
   //interval of how fast to update servos.. in ms 
   dt = 20.00f;    //mS
- samplebno();
+  samplebno();    // sampling BNO055 as fast as possible, might be better to sample at a constant rate
+                  //see below 
   
 //  if(millis() - sensor_timer >= 20){
 //    sensor_timer = millis();
@@ -251,7 +276,10 @@ void loop(void)
   */
   if(millis() - tavastime >= 50){
     tavastime = millis();
-      //read BNO values and load it into imu::Vector<3> euler and imu::Vector<3> gyro 
+    //printing roll and pitch angles of the vehicle to Serial
+    //to be used in CSV file for later analysis 
+    //TODO:this will need to be saved to a SD card or EEPROM when 
+    //     we switch over to the TEENSY 4.2 board 
     printSerial();
       
     
@@ -260,20 +288,31 @@ void loop(void)
 
 
 }
+
+//This function samples the BNO055 and calculates the Euler angles and 
+//gyro values, filtered, and magnetometer values for yaw/heading 
 void samplebno(void){
-  //read BNO values and load it into imu::Vector<3> euler and imu::Vector<3> gyro 
-  euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
-  gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
-   // gyro.z() = -gyro.z();
+  
 
+  //EULER ANGLE 
+  //load q buffer with quaternion
+  imu::Quaternion q = bno.getQuat();
+  q.normalize();
+  //convert quaternions into readable Euler angles in RADIANS 
+  //given conversion from quaternions, the angles will automatically be in radians
+  imu::Vector<3> euler = q.toEuler();
+  //load eulerFiltered_radians buffer with euler angles from quaternions 
+  //switch x and z axes (still not sure why only the angles are switched but not the gyro)
+  ef_r = {euler.z(), euler.y(), euler.x()};
 
-  //load temp vector to convert degrees to radians and switch z and x axis (orientation of imu) 
-  ef_r = {d2r(euler.z()-10.00f), d2r(euler.y()), d2r(euler.z())};
-
-  //load temp vecot to IIR filter the gyro values 
+  //GYROSCOPE 
+  imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
+  //load temp vecotor to IIR filter the gyro values 
   gf_r = {IIR(d2r(gyro.x()), pdata.Gx, 0.20), IIR(d2r(gyro.y()), pdata.Gy, 0.20), IIR(d2r(gyro.z()), pdata.Gz, 0.55)};
 
   //load previous gyro vectors. 
+  //TODO: 
+  // this needs to be changed to a rolling pointer to save memory 
   pdata.Gx = gf_r.x(); 
   pdata.Gy = gf_r.y(); 
   pdata.Gz = gf_r.z();
@@ -331,19 +370,6 @@ void control_attitude(float r, float p, float y, float gx, float gy, float gz){
 //load state vecotr 
   Xs = {r, p, 1.00f, gx, gy, 0};
 
-//   Serial.print("r:  ");
-// Serial.print(r2d(Xs(0)));
-// Serial.print("\t");
-//  Serial.print("p:  ");
-// Serial.print(r2d(Xs(1)));
-// Serial.print("\t");
-//  Serial.print("gx:  ");
-// Serial.print(r2d(Xs(3)));
-// Serial.print("\t");
-//  Serial.print("r:  ");
-// Serial.print(r2d(Xs(4)));
-// Serial.print("\t");
-
   //run controller 
   error = Xs-REF; 
   U = -K * error; 
@@ -356,9 +382,9 @@ void control_attitude(float r, float p, float y, float gx, float gy, float gz){
 // Serial.print("\t");
 
   //load desired torque vector
-//  float tx = U(2)*sin(U(0))*COM_TO_TVC;
-//  float ty = U(2)*sin(U(1))*COM_TO_TVC;
-//  float tz = U(2);
+  //  float tx = U(2)*sin(U(0))*COM_TO_TVC;
+  //  float ty = U(2)*sin(U(1))*COM_TO_TVC;
+  //  float tz = U(2);
 
   //load new Thrust Vector from desired torque
   float Tx{U(2)*sin(U(0))}; 
