@@ -84,8 +84,8 @@ Matrix<6,1> error {0,0,0,0,0,0}; // State error vector
 
 
 
-Matrix<3,6> K = {  0.35003,    0.00000,    0.0000,   0.101001,    0.0000,    0.0000,
-                  -0.000000,    0.35003,    0.0000,   0.000000,   0.101001,    0.0000,
+Matrix<3,6> K = {  0.45003,    0.00000,    0.0000,   0.121001,    0.0000,    0.0000,
+                  -0.000000,    0.45003,    0.0000,   0.000000,   0.121001,    0.0000,
                    0.000000,   -0.00000,    25.00,   -0.00000,    0.0000,   0.471857}; 
 
                    
@@ -321,10 +321,21 @@ void samplebno(void){
 
 void printSerial(void){
   //Serial.print("r: ");
-  Serial.print(r2d(ef_r.x()));
+//  Serial.print(r2d(ef_r.x()));
+//  Serial.print(",");
+//  
+//  Serial.println(r2d(ef_r.y()));
+//  Serial.print(",");
+//  Serial.print("        ");
+  Serial.print(r2d(U(0)));
   Serial.print(",");
-  //Serial.print("p: ");
-  Serial.println(r2d(ef_r.y()));
+  Serial.print(r2d(U(1)));
+  Serial.print(",");
+  Serial.print(r2d(pdata.Roll));
+  Serial.print(",");
+  Serial.print(r2d(pdata.Pitch));
+  Serial.println(",");
+  
   //Serial.print("\t");
 }
 
@@ -387,15 +398,18 @@ void control_attitude(float r, float p, float y, float gx, float gy, float gz){
   //  float tz = U(2);
 
   //load new Thrust Vector from desired torque
-  float Tx{U(2)*sin(U(0))}; 
-  float Ty{-U(2)*sin(U(1))*cos(U(0))}; 
+  float Tx{-U(2)*sin(U(0))}; 
+  float Ty{-U(2)*sin(U(1))}; 
   float Tz{U(2)};           //constant for now, should be coming from position controller 
 
- Tmag = sqrt(pow(Tx,2) + pow(Ty,2) + pow(Tz,2)); 
+ float Tm = sqrt(pow(Tx,2) + pow(Ty,2) + pow(Tz,2)); 
   
   //different way to deduce servo angles from body forces (got this from a paper I can send you)
-   //U(0) = asin(-Tx/(Tmag - pow(Ty,2)));
-   //U(1) = asin(Ty/Tmag);
+   //pdata.Roll = asin(-Tx/(Tmag - pow(Ty,2)));
+   //pdata.Pitch = asin(Ty/Tmag);
+
+   U(0) = asin(Tx/(Tm));
+   U(1) = asin(Ty/Tm);
 
 // float u1temp = averaging(U(1), prev(4));
 // float u2temp = averaging(U(2), prev(5));
@@ -467,8 +481,8 @@ U(1) = limit(U(1), d2r(-15), d2r(15));
 //   Serial.println("\t");
 
 //load previous data struct for filtering etc. 
-  pdata.Roll = r; 
-  pdata.Pitch = p; 
+  //pdata.Roll = r; 
+  //pdata.Pitch = p; 
   pdata.Yaw = y;
   pdata.Gxf = gyro.z();
   pdata.Gyf = gyro.y();
