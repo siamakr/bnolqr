@@ -84,9 +84,9 @@ Matrix<6,1> error {0,0,0,0,0,0}; // State error vector
 
 
 
-Matrix<3,6> K = {  0.350003,    0.00000,    0.0000,   -0.171001,    0.0000,    0.0000,
-                  -0.000000,    0.325003,    0.0000,   0.000000,   -0.171001,    0.0000,
-                   0.000000,   -0.00000,    24.800,   -0.00000,    0.0000,   0.471857}; 
+Matrix<3,6> K = {  0.35003,    0.00000,    0.0000,   0.101001,    0.0000,    0.0000,
+                  -0.000000,    0.35003,    0.0000,   0.000000,   0.101001,    0.0000,
+                   0.000000,   -0.00000,    25.00,   -0.00000,    0.0000,   0.471857}; 
 
                    
              //      Matrix<3,6> K = {  0.40003,    0.0000,    0.0000,   -0.28001,    0.0000,    0.0000,
@@ -178,10 +178,10 @@ void setup(void)
   Serial.begin(115200);
   Serial.println("Orientation Sensor Test"); Serial.println("");
   bno.begin(OPERATION_MODE_NDOF);
-  bno.setExtCrystalUse(true);
+  //bno.setExtCrystalUse(true);
 
   //Load the experimentally gathered calibration values into the offset struct
-  adafruit_bno055_offsets_t bnoOffset{0};
+  adafruit_bno055_offsets_t bnoOffset;
   //acceleration 
   bnoOffset.accel_offset_x = -20;
   bnoOffset.accel_offset_y = -176;
@@ -243,17 +243,17 @@ void loop(void)
   }
   
   //interval of how fast to update servos.. in ms 
-  dt = 20.00f;    //mS
-  samplebno();    // sampling BNO055 as fast as possible, might be better to sample at a constant rate
+  dt = 10.00f;    //mS
+ // samplebno();    // sampling BNO055 as fast as possible, might be better to sample at a constant rate
                   //see below 
   
-//  if(millis() - sensor_timer >= 20){
-//    sensor_timer = millis();
-//      //read BNO values and load it into imu::Vector<3> euler and imu::Vector<3> gyro 
-//    samplebno();
-//      
-//    
-//  }
+  if(millis() - sensor_timer >= 20){
+    sensor_timer = millis();
+      //read BNO values and load it into imu::Vector<3> euler and imu::Vector<3> gyro 
+    samplebno();
+      
+    
+  }
 
   //write to servos every dt microseconds (rn set at same rate as loop so as if this if statement is not even here)
  if(millis() - control_timer >= dt){
@@ -267,9 +267,9 @@ void loop(void)
   // RUN THROUGH STEP RESPONSES. 
   /*
   if(millis() - mst >= 0000 && millis() - mst <= 5000) REF = {0.00f, d2r(0.00f), 0.00f, 0.00f, 0.00f, 0.00f};
-  if(millis() - mst >= 5000 && millis() - mst <= 8000) REF = {0.00f, d2r(7.00f), 0.00f, 0.00f, 0.00f, 0.00f};
-  if(millis() - mst >= 8000 && millis() - mst <= 11000) REF = {d2r(-7.00f), 0.00f ,  0.00f, 0.00f, 0.00f, 0.00f};
-  if(millis() - mst >= 11000 && millis() - mst <= 15000) REF = {d2r(7.00f), d2r(-7.00f), 0.00f, 0.00f, 0.00f, 0.00f};
+  if(millis() - mst >= 5000 && millis() - mst <= 8000) REF = {0.00f, d2r(5.00f), 0.00f, 0.00f, 0.00f, 0.00f};
+  if(millis() - mst >= 8000 && millis() - mst <= 11000) REF = {d2r(-5.00f), 0.00f ,  0.00f, 0.00f, 0.00f, 0.00f};
+  if(millis() - mst >= 11000 && millis() - mst <= 15000) REF = {d2r(-7.00f), d2r(-7.00f), 0.00f, 0.00f, 0.00f, 0.00f};
 
     //stop testing after 10 seconds to save battery life. 
   if(millis() - mst > 15000) suspend();
@@ -308,7 +308,7 @@ void samplebno(void){
   //GYROSCOPE 
   imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
   //load temp vecotor to IIR filter the gyro values 
-  gf_r = {IIR(d2r(gyro.x()), pdata.Gx, 0.20), IIR(d2r(gyro.y()), pdata.Gy, 0.20), IIR(d2r(gyro.z()), pdata.Gz, 0.55)};
+  gf_r = {IIR(d2r(gyro.x()), pdata.Gx, 0.2), IIR(d2r(gyro.y()), pdata.Gy, 0.2), IIR(d2r(gyro.z()), pdata.Gz, 0.55)};
 
   //load previous gyro vectors. 
   //TODO: 
@@ -321,10 +321,10 @@ void samplebno(void){
 
 void printSerial(void){
   //Serial.print("r: ");
-  Serial.print(r2d(ef_r.x()),5);
+  Serial.print(r2d(ef_r.x()));
   Serial.print(",");
   //Serial.print("p: ");
-  Serial.println(r2d(ef_r.y()),5);
+  Serial.println(r2d(ef_r.y()));
   //Serial.print("\t");
 }
 
@@ -411,8 +411,8 @@ void control_attitude(float r, float p, float y, float gx, float gy, float gz){
 //U(1) = servoRateLimit(U(1), pdata.u2);
 
 //filter servo angles, the more filtering, the bigger the delay 
-U(0) = IIR(U(0), pdata.u1, .2);
-U(1) = IIR(U(1), pdata.u2, .2); 
+U(0) = IIR(U(0), pdata.u1, .12);
+U(1) = IIR(U(1), pdata.u2, .12); 
 
 //limit servo angles to +-15º
 U(0) = limit(U(0), d2r(-15), d2r(15));
@@ -420,9 +420,9 @@ U(1) = limit(U(1), d2r(-15), d2r(15));
 
 
 
- writeXservo(r2d(-U(0)));
+ writeXservo(r2d(U(0)));
   //delay(.5);
- writeYservo(r2d(-U(1)));
+ writeYservo(r2d(U(1)));
 //delay(.5);
  writeEDF(Tmag);
 
