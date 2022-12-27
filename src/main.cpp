@@ -92,6 +92,7 @@ typedef struct
   float roll, pitch, yaw;
   float gx, gy, gz;
   float ax, ay, az; 
+  float x, y, z; 
 }data_current_t;
 
 typedef struct 
@@ -149,6 +150,7 @@ float servoang2 ;
 float mst{0.0f};                                  // mst: Mission Start Time
 bool startFlag{false};
 float tavastime{0.00f};
+float p[3] = {0};
 
 
 // function definitions (will need to add these to the header file but this is just for initial testing puroses to keep everything in one file)
@@ -179,6 +181,7 @@ void sampleLidar(void);
 uint8_t distanceFast(uint16_t * distance);
 void rotate_to_world( float * vector );
 void printLoopTime(void);
+uint8_t distanceContinuous(uint16_t * distance);
 
 
 
@@ -196,7 +199,7 @@ void setup(void)
 
 void loop(void)
 {
-  printLoopTime();
+  //printLoopTime();
 
   //run this statement once when loop start to grab the start time with millis()
   if(startFlag == false)
@@ -211,10 +214,9 @@ void loop(void)
     sensor_timer = millis();
     //read BNO values and load it into imu::Vector<3> euler and imu::Vector<3> gyro 
     samplebno();
-    sampleLidar();
+    
     //float temp_vec_rotated[2];
-    temp_vec_rotated[2] = (float) distance;
-    rotate_to_world(temp_vec_rotated);    
+      
   }
 
   //write to servos every dt microseconds (rn set at same rate as loop so as if this if statement is not even here)
@@ -237,9 +239,10 @@ void loop(void)
     //stop testing after 10 seconds to save battery life. 
   if(millis() - mst > 15000) suspend();
   */
-  if(millis() - tavastime >= 25)
+  if(millis() - tavastime >= 250)
   {
     tavastime = millis();
+    sampleLidar();
     //printing roll and pitch angles of the vehicle to Serial
     //to be used in CSV file for later analysis 
     //TODO:this will need to be saved to a SD card or EEPROM when 
@@ -302,6 +305,7 @@ void initBno(void)
 void samplebno(void){
 
   //EULER ANGLE 
+  
   //load q buffer with quaternion
   imu::Quaternion q = bno.getQuat();
   q.normalize();
@@ -317,18 +321,20 @@ void samplebno(void){
   data.yaw = euler.x();
 
   //GYROSCOPE 
-  imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
-  //load temp vecotor to IIR filter the gyro values 
-  data.gx = IIR(d2r(gyro.x()), pdata.gx, 0.10);
-  data.gy = IIR(d2r(gyro.y()), pdata.gy, 0.10); 
-  data.gz = IIR(d2r(gyro.z()), pdata.gz, 0.55);
-
-  //load previous gyro vectors. 
+  
+  //load previous gyro data before retreiving the current data
   //TODO: 
   // this needs to be changed to a rolling pointer to save memory 
   pdata.gx = data.gx; 
   pdata.gy = data.gy; 
   pdata.gz = data.gz;
+
+  //read gyro values from bno
+  imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
+  //load temp vecotor to IIR filter the gyro values 
+  data.gx = IIR(d2r(gyro.x()), pdata.gx, 0.10);
+  data.gy = IIR(d2r(gyro.y()), pdata.gy, 0.10); 
+  data.gz = IIR(d2r(gyro.z()), pdata.gz, 0.55);
 
 }
 
@@ -341,7 +347,7 @@ void printSerial(void)
   Serial.print(",");
   Serial.print(distance);
   Serial.print(",");
-  Serial.println(temp_vec_rotated[0]);
+  Serial.println(p[2]);
   // Serial.print(r2d(U(1)));
   // Serial.print(",");
   // Serial.print(r2d(pdata.Roll));
@@ -438,9 +444,6 @@ void control_attitude(float r, float p, float y, float gx, float gy, float gz)
 
   //load previous data struct for filtering etc. 
 
-  pdata.gx = data.gx;
-  pdata.gy = data.gy;
-  pdata.gz = data.gz;
   pdata.u1 = U(0);
   pdata.u2 = U(1);
   pdata.u3 = U(2);
@@ -640,7 +643,10 @@ void initLidar(void)
 
 void sampleLidar(void)
 {
-  uint8_t response = distanceFast(&distance);
+  uint8_t response = distanceContinuous(&distance);
+  data.z = distance;
+  p[2] = (float)  distance / 100.00f;
+  rotate_to_world( p );
 }
 
 uint8_t distanceFast(uint16_t * distance)
@@ -663,4 +669,24 @@ uint8_t distanceFast(uint16_t * distance)
   return 1;
 }
 
+uint8_t distanceContinuous(uint16_t * distance)
+{
+    uint8_t newDistance = 0;
+
+    // Check on busyFlag to indicate if device is idle
+    // (meaning = it finished the previously triggered measurement)
+    if (myLidarLite.getBusyFlag() == 0)
+    {
+        // Trigger the next range measurement
+        myLidarLite.takeRange();
+
+        // Read new distance data from device registers
+        *distance = myLidarLite.readDistance();
+
+        // Report to calling function that we have new data
+        newDistance = 1;
+    }
+
+    return newDistance;
+}
 //////////////////////////////////////////////////////////////////////////////
