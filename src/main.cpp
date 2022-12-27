@@ -19,13 +19,13 @@
 #define COM_TO_TVC 0.1335
 #define MASS 2.458                    //Kg
 #define MAX_ANGLE_SERVO 15           //Deg
-#define X 0
-#define Y 1
-#define Z 2
+// #define X 0
+// #define Y 1
+// #define Z 2
 //#define SERVO_MAX_SEC_PER_DEG 0.001667      //dt/.001667 |(dt=0.1) = 6º
 #define SERVO_MAX_SEC_PER_DEG 0.003333f      //dt/.003333 |(dt=0.1) = 3º
 #define SERVO_MAX_SEC_PER_RAD 0.0095496f      //dt/.003333 |(dt=0.1) = 3º
-#define DT .01
+//#define DT .01
 #define SERVO_MAX_DEGREE_PER_DT 12
 #define MAX_VEHICLE_ANGLE_DEG 35.00f
 #define DEADBAND_ANGLE_DEG 0.001f
@@ -77,6 +77,8 @@
 #define EDF_JZZ 0.0001744f
 //MASS-MOMENT-OF-INERTIA OF REACTION WHEEL 
 #define RW_JZZ 0.00174245f
+float dt{10.00f};
+#define DT dt/1000
 
 using namespace BLA;
 
@@ -109,7 +111,7 @@ imu::Vector<3> ef_r;
 imu::Vector<3> gf_r;
 imu::Vector<3> gflpr_r;
 */
-
+/////////////////////// ATTITUDE ONLY START ///////////////////////
 Matrix<3,1> U = {0,0,0}; // Output vector
 Matrix<6,1> error {0,0,0,0,0,0}; // State error vector
 Matrix<6,1> REF = {0,0,0,0,0,0}; 
@@ -122,6 +124,72 @@ Matrix<3,6> K = {  0.435003,    0.00000,    0.0000,   0.1521001,    0.0000,    0
              //      Matrix<3,6> K = {  0.40003,    0.0000,    0.0000,   -0.28001,    0.0000,    0.0000,
              //     -0.0000,    0.2085,    0.0000,   0.0000,    -0.1061,    0.0000,
               //     0.0000,   -0.0000,    24.80,   -0.0000,    0.0000,   0.471857}; 
+/////////////////////// ATTITUDE ONLY START ///////////////////////
+
+/////////////////////// HOVER ONLY START ///////////////////////
+Matrix<4,1> U_hov = {0,0,0,0}; // Output vector
+Matrix<8,1> error_hov {0,0,0,0,0,0,0,0}; // State error vector
+Matrix<8,1> REF_hov = {0,0,0,0,0,0,0,0}; 
+Matrix<8,1> Xs_hov = {0,0,0,0,0,0,0,0};
+Matrix<4,8> K_hov = {  0.435003,    0.00000,      0.0000,   0.1521001,    0.0000,    0.0000,     0.00,   0.00,
+                      -0.000000,    0.435003,     0.0000,   0.000000,   0.1521001,    0.0000,    0.00,   0.00,
+                      -0.000000,    0.435003,     0.0000,   0.000000,   0.1521001,    0.0000,    0.00,   0.00,
+                       0.000000,   -0.00000,      24.80,   -0.00000,    0.0000,   0.471857,      0.00,   0.00}; 
+
+/////////////////////// HOVER ONLY START ///////////////////////
+
+
+/////////////// Estimator matrixes Start ////////////////////////
+Matrix<6,6> A = {   1,  0,  0,  DT, 0,  0,
+                    0,  1,  0,  0,  DT, 0,
+                    0,  0,  1,  0,  0,  DT,
+                    0,  0,  0,  1,  0,  0,
+                    0,  0,  0,  0,  1,  0, 
+                    0,  0,  0,  0,  0,  1 };
+
+Matrix<6,3> B = {   0.5*pow(DT,2),  0,              0,         
+                    0,              0.5*pow(DT,2),  0,         
+                    0,              0,              0.5*pow(DT,2),  
+                    DT,             0,              0,         
+                    0,              DT,             0,         
+                    0,              0,              DT };
+ 
+Matrix<6,6> H = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}; 
+
+// State vector
+Matrix<6,1> Xest = {0,0,0,0,0,0};
+
+// Prediction vector
+Matrix<6,1> Xpre = {0,0,0,0,0,0};
+
+// Measurement vector
+Matrix<6,1> Z = {0,0,0,0,0,0};
+
+// Input vector
+Matrix<3,1> Uest = {0,0,0};
+
+// Estimator gain
+/* Matrix<6,6> Kf = {  0.0001,    0.0000,    0.0000,    0.0095,   -0.0000,    0.0000,
+                    0.0000,    0.0001,   -0.0000,    0.0000,    0.0095,   -0.0000,
+                    0.0000,   -0.0000,    0.1547,    0.0000,   -0.0000,    0.0000,
+                    0.0000,    0.0000,    0.0000,    0.1057,   -0.0000,    0.0000,
+                   -0.0000,    0.0000,   -0.0000,   -0.0000,    0.1057,   -0.0000,
+                    0.0000,   -0.0000,    1.3001,    0.0000,   -0.0000,    0.0000  }; */
+
+/* Matrix<6,6> Kf = {  0.0345,    0.0000,   0.0000,    0.0019,    0.0000,    0.0000,
+                    0.0000,    0.0345,   0.0000,    0.0000,    0.0019,    0.0000,
+                    0.0000,    0.0000,   0.0274,    0.0000,    0.0000,    0.0001,
+                    0.1495,    0.0000,   0.0000,    0.0216,    0.0000,    0.0000,
+                    0.0000,    0.1495,   0.0000,    0.0000,    0.0216,    0.0000,
+                    0.0000,    0.0000,   0.0767,    0.0000,    0.0000,    0.0004    }; */
+
+Matrix<6,6> Kf = {  0.618520, 0.000000, 0.000000, 0.000330, 0.000000, 0.000000,
+                    0.000000, 0.618520, 0.000000, 0.000000, 0.000330, 0.000000,
+                    0.000000, 0.000000, 0.318880, 0.000000, 0.000000, 0.000420,
+                    0.162570, 0.000000, 0.000000, 0.131210, 0.000000, 0.000000,
+                    0.000000, 0.162570, 0.000000, 0.000000, 0.131210, 0.000000,
+                    0.000000, 0.000000, 4.190280, 0.000000, 0.000000, 0.045440   };
+/////////////// Estimator matrixes End ////////////////////////
 
 
 Servo sx;                                         // x-axis servo object (Roll)
@@ -133,8 +201,9 @@ Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28);  // BNO055 9-axis IMU object
 
 data_prev_t pdata;                                // Previous Data struct object
 data_current_t data;                              // Current Data struct object
+data_estimator_t estimate;                        // Current Estimator Data Object
 
-float curr_time, prev_time, dt;
+float curr_time, prev_time;
 float previousTime, currentTime, elapsedTime;
 float control_timer{0};
 float sensor_timer{0};
@@ -142,6 +211,7 @@ float sensor_timer{0};
 //lidar stuff
 uint8_t lidarLiteAdd{0x62};
 uint16_t distance;
+uint8_t lidar_measurement_response;
 float temp_vec_rotated[2];
 
 float T[2], torque[2];
@@ -150,7 +220,9 @@ float servoang2 ;
 float mst{0.0f};                                  // mst: Mission Start Time
 bool startFlag{false};
 float tavastime{0.00f};
-float p[3] = {0};
+float estTime{0.00f};
+//float p[3] = {0};
+
 
 
 // function definitions (will need to add these to the header file but this is just for initial testing puroses to keep everything in one file)
@@ -182,6 +254,7 @@ uint8_t distanceFast(uint16_t * distance);
 void rotate_to_world( float * vector );
 void printLoopTime(void);
 uint8_t distanceContinuous(uint16_t * distance);
+void run_estimator();
 
 
 
@@ -208,25 +281,28 @@ void loop(void)
     startFlag = true;
   }
   
-  
-  if(millis() - sensor_timer >= dt)
+  //SENSOR TIMER
+  if(millis() - sensor_timer >= 10)
   {
     sensor_timer = millis();
     //read BNO values and load it into imu::Vector<3> euler and imu::Vector<3> gyro 
     samplebno();
-    
+    sampleLidar();
     //float temp_vec_rotated[2];
       
   }
 
-  //write to servos every dt microseconds (rn set at same rate as loop so as if this if statement is not even here)
- if(millis() - control_timer >= dt)
+ // CONTROLLER TIMER
+  if(millis() - control_timer >= 10)
   {
-   control_timer = millis(); 
-    //write to servos 
-    //load controller with new state values and run controller 
+    control_timer = millis(); 
     control_attitude(data.roll, data.pitch, data.yaw, data.gx, data.gy, data.gz);
-    //delay(2);
+  }
+
+  if(millis() - estTime >= 100)
+  {
+    estTime = millis();
+    run_estimator();
   }
 
   // RUN THROUGH STEP RESPONSES. 
@@ -236,17 +312,15 @@ void loop(void)
   if(millis() - mst >= 8000 && millis() - mst <= 11000) REF = {d2r(-3.00f), 0.00f ,  0.00f, 0.00f, 0.00f, 0.00f};
   if(millis() - mst >= 11000 && millis() - mst <= 15000) REF = {d2r(3.00f), d2r(3.00f), 0.00f, 0.00f, 0.00f, 0.00f};
 
-    //stop testing after 10 seconds to save battery life. 
+  //stop testing after 10 seconds to save battery life. 
   if(millis() - mst > 15000) suspend();
   */
-  if(millis() - tavastime >= 250)
+
+ //PRINT/LIDAR TIMER
+  if(millis() - tavastime >= 200)
   {
     tavastime = millis();
-    sampleLidar();
-    //printing roll and pitch angles of the vehicle to Serial
-    //to be used in CSV file for later analysis 
-    //TODO:this will need to be saved to a SD card or EEPROM when 
-    //     we switch over to the TEENSY 4.2 board 
+    //sampleLidar();
     printSerial();
   }
 
@@ -300,42 +374,30 @@ void initBno(void)
   delay(500);
 }
 
-//This function samples the BNO055 and calculates the Euler angles and 
-//gyro values, filtered, and magnetometer values for yaw/heading 
-void samplebno(void){
+void init_servos(void)
+{
+  //attach servo pins 
+  sx.attach(XSERVO_PIN);
+  sy.attach(YSERVO_PIN);
+  rw.attach(RW_PIN);
+  edf.attach(EDF_PIN, 1000, 2000);
+  delay(200);
 
-  //EULER ANGLE 
-  
-  //load q buffer with quaternion
-  imu::Quaternion q = bno.getQuat();
-  q.normalize();
-  //convert quaternions into readable Euler angles in RADIANS 
-  //given conversion from quaternions, the angles will automatically be in radians
-  imu::Vector<3> euler = q.toEuler();
-  //load eulerFiltered_radians buffer with euler angles from quaternions 
-  //switch x and z axes (still not sure why only the angles are switched but not the gyro)
-  //ef_r = {euler.z(), euler.y(), euler.x()};
-  // Load data struct wtih Euler Angles (in Radians)
-  data.roll = euler.z();
-  data.pitch = euler.y();
-  data.yaw = euler.x();
+  //Zero Servos 
+  writeXservo(0);
+  writeYservo(0);
+  delay(200);
+}
 
-  //GYROSCOPE 
-  
-  //load previous gyro data before retreiving the current data
-  //TODO: 
-  // this needs to be changed to a rolling pointer to save memory 
-  pdata.gx = data.gx; 
-  pdata.gy = data.gy; 
-  pdata.gz = data.gz;
+void init_edf(void)
+{
+  //initialize the edf motor and run it at 1500us for 5 seconds to initialize the govenor mode to linearize the throttle curve. 
+  edf.writeMicroseconds(EDF_OFF_PWM); 
+  delay(2000);
 
-  //read gyro values from bno
-  imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
-  //load temp vecotor to IIR filter the gyro values 
-  data.gx = IIR(d2r(gyro.x()), pdata.gx, 0.10);
-  data.gy = IIR(d2r(gyro.y()), pdata.gy, 0.10); 
-  data.gz = IIR(d2r(gyro.z()), pdata.gz, 0.55);
-
+  //go to 1500 and wait 5 seconds
+  edf.writeMicroseconds(EDF_MIN_PWM);
+  delay(5000);
 }
 
 void printSerial(void)
@@ -345,9 +407,19 @@ void printSerial(void)
   Serial.print(",");  
   Serial.print(r2d(data.pitch));
   Serial.print(",");
-  Serial.print(distance);
+  Serial.print(data.z);
+  Serial.print(",    ");
+  Serial.print(estimate.x);
   Serial.print(",");
-  Serial.println(p[2]);
+  Serial.print(estimate.y);
+  Serial.print(",");
+  Serial.print(estimate.z);
+  Serial.print(",      ");
+  Serial.print(estimate.vx);
+  Serial.print(",");
+  Serial.print(estimate.vy);
+  Serial.print(",");
+  Serial.println(estimate.vz);
   // Serial.print(r2d(U(1)));
   // Serial.print(",");
   // Serial.print(r2d(pdata.Roll));
@@ -386,6 +458,41 @@ void calibratebno(void)
 
 }
 
+//This function samples the BNO055 and calculates the Euler angles and 
+//gyro values, filtered, and magnetometer values for yaw/heading 
+void samplebno(void){
+
+  /////////EULER ANGLE////////// 
+  imu::Quaternion q = bno.getQuat();
+  q.normalize();
+  //convert quaternions into readable Euler angles in RADIANS 
+  //given conversion from quaternions, the angles will automatically be in radians
+  imu::Vector<3> euler = q.toEuler();
+  //load data struct and switch z and x axes (still not sure why this is like this)
+  data.roll = euler.z();
+  data.pitch = euler.y();
+  data.yaw = euler.x();
+
+  //////////GYROSCOPE///////// 
+  //load previous gyro data before retreiving the current data
+  pdata.gx = data.gx; 
+  pdata.gy = data.gy; 
+  pdata.gz = data.gz;
+  //read gyro values from bno
+  imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
+  //load temp vecotor to IIR filter the gyro values 
+  data.gx = IIR(d2r(gyro.x()), pdata.gx, 0.10);
+  data.gy = IIR(d2r(gyro.y()), pdata.gy, 0.10); 
+  data.gz = IIR(d2r(gyro.z()), pdata.gz, 0.55);
+
+  //////////ACCELERATION/////////
+  imu::Vector<3> accel = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
+  data.ax = accel.x();
+  data.ay = accel.y();
+  data.az = accel.z();
+  
+
+}
 
 void control_attitude(float r, float p, float y, float gx, float gy, float gz)
 {
@@ -449,8 +556,67 @@ void control_attitude(float r, float p, float y, float gx, float gy, float gz)
   pdata.u3 = U(2);
 }
 
-void control_attitude_red(float r, float p, float y, float gx, float gy, float gz, float vz, float z){
+void control_attitude_red(float r, float p, float y, float gx, float gy, float gz, float vz, float z)
+{
+  //load state vecotr 
+  Xs_hov = {r, p, y, gx, gy, gz, vz, z};
 
+  //run controller 
+  error_hov = Xs_hov-REF_hov; 
+  U_hov = -K_hov * error_hov; 
+
+  //load desired torque vector
+  //  float tx = U(2)*sin(U(0))*COM_TO_TVC;
+  //  float ty = U(2)*sin(U(1))*COM_TO_TVC;
+  //  float tz = U(2);
+
+  //load new Thrust Vector from desired torque
+  float Tx{ -U_hov(2) * sin(U_hov(0)) }; 
+  float Ty{ -U_hov(2) * sin(U_hov(1)) * cos(U_hov(0)) }; 
+  float Tz{  U_hov(2) * cos(U_hov(1)) * cos(U_hov(0)) };           //constant for now, should be coming from position controller 
+
+  float Tm = sqrt(pow(Tx,2) + pow(Ty,2) + pow(Tz,2)); 
+  
+  //different way to deduce servo angles from body forces (got this from a paper I can send you)
+  //pdata.Roll = asin(-Tx/(Tmag - pow(Ty,2)));
+  //pdata.Pitch = asin(Ty/Tmag);
+
+  U_hov(0) = asin(Tx/(Tm));
+  U_hov(1) = asin(Ty/Tm);
+
+  // float u1temp = averaging(U_hov(1), prev(4));
+  // float u2temp = averaging(U_hov(2), prev(5));
+
+  //deadband 
+  //U_hov(0) = deadband(U_hov(0), pdata.u1);
+  //U_hov(1) = deadband(U_hov(1), pdata.u2);
+
+  //limit the speed of servos
+  //TODO: test the change made to the maxStep value 
+  //      given the correction to the servo angle to TVC angle 
+  //U_hov(0) = servoRateLimit(U_hov(0), pdata.u1);
+  //U_hov(1) = servoRateLimit(U_hov(1), pdata.u2);
+
+  //filter servo angles, the more filtering, the bigger the delay 
+  U_hov(0) = IIR(U_hov(0), pdata.u1, .05);
+  U_hov(1) = IIR(U_hov(1), pdata.u2, .05); 
+
+  //limit servo angles to +-15º
+  U_hov(0) = limit(U_hov(0), d2r(-15), d2r(15));
+  U_hov(1) = limit(U_hov(1), d2r(-15), d2r(15)); 
+
+  //write the actuation angles to the servos 
+  writeXservo(r2d(U_hov(0)));
+  writeYservo(r2d(U_hov(1)));
+  //Write the thrust value (N) to the EDF motor
+  writeEDF(Tm);
+
+  //load previous data struct for filtering etc. 
+
+  pdata.u1 = U_hov(0);
+  pdata.u2 = U_hov(1);
+  pdata.u3 = U_hov(2);
+  pdata.u4 = U_hov(3);
 }
 
 float r2d(float rad)
@@ -487,32 +653,6 @@ float IIR( float newSample, float prevOutput, float alpha)
 float averaging(float new_sample, float old_sample)
 {
   return ((new_sample + old_sample)/2.0f);
-}
-
-void init_servos(void)
-{
-  //attach servo pins 
-  sx.attach(XSERVO_PIN);
-  sy.attach(YSERVO_PIN);
-  rw.attach(RW_PIN);
-  edf.attach(EDF_PIN, 1000, 2000);
-  delay(200);
-
-  //Zero Servos 
-  writeXservo(0);
-  writeYservo(0);
-  delay(200);
-}
-
-void init_edf(void)
-{
-  //initialize the edf motor and run it at 1500us for 5 seconds to initialize the govenor mode to linearize the throttle curve. 
-  edf.writeMicroseconds(EDF_OFF_PWM); 
-  delay(2000);
-
-  //go to 1500 and wait 5 seconds
-  edf.writeMicroseconds(EDF_MIN_PWM);
-  delay(5000);
 }
 
 //Write to X servo 
@@ -608,27 +748,6 @@ void suspend(void)
 
 }
 
-void rotate_to_world( float * vector )
-{
-  float p = data.roll;
-  float q = data.pitch;
-  float u = data.yaw;
-
-  Matrix<3,1> in = { vector[0], vector[1], vector[2] };
-  Matrix<3,1> out = {0,0,0};
-
-  Matrix<3,3> R = {   cos(q)*cos(u), sin(p)*sin(q)*cos(u)-cos(p)*sin(u), cos(p)*sin(q)*cos(u)+sin(p)*sin(u) ,
-                      cos(q)*sin(u), sin(p)*sin(q)*sin(u)+cos(p)*cos(u), cos(p)*sin(q)*sin(u)-sin(p)*cos(u) ,
-                      -sin(q),       sin(p)*cos(q),                      cos(p)*cos(q)                      };
-
-  out = R * in;
-
-  vector[0] = out(0);
-  vector[1] = out(1);
-  vector[2] = out(2);
-
-}
-
 
 //////////////////////////////////////////////////////////////////////////
 // the functions below will be added to the sensors.cpp/sensors.h class 
@@ -643,10 +762,10 @@ void initLidar(void)
 
 void sampleLidar(void)
 {
-  uint8_t response = distanceContinuous(&distance);
-  data.z = distance;
-  p[2] = (float)  distance / 100.00f;
-  rotate_to_world( p );
+  lidar_measurement_response = distanceContinuous(&distance);
+  if(lidar_measurement_response == 1) data.z = distance/100.00f;    // convert cm measurements to m and 
+  //p[2] = (float)  distance / 100.00f;
+  //rotate_to_world( p );
 }
 
 uint8_t distanceFast(uint16_t * distance)
@@ -690,3 +809,87 @@ uint8_t distanceContinuous(uint16_t * distance)
     return newDistance;
 }
 //////////////////////////////////////////////////////////////////////////////
+
+void rotate_to_world( float * vector )
+{
+  float p = data.roll;
+  float q = data.pitch;
+  float u = data.yaw;
+
+  Matrix<3,1> in = { vector[0], vector[1], vector[2] };
+  Matrix<3,1> out = {0,0,0};
+
+  Matrix<3,3> R = {   cos(q)*cos(u), sin(p)*sin(q)*cos(u)-cos(p)*sin(u), cos(p)*sin(q)*cos(u)+sin(p)*sin(u) ,
+                      cos(q)*sin(u), sin(p)*sin(q)*sin(u)+cos(p)*cos(u), cos(p)*sin(q)*sin(u)-sin(p)*cos(u) ,
+                      -sin(q),       sin(p)*cos(q),                      cos(p)*cos(q)                      };
+
+  out = R * in;
+
+  vector[0] = out(0);
+  vector[1] = out(1);
+  vector[2] = out(2);
+
+}
+
+void run_estimator(){
+
+    /* ---- Sensor processing ---- */
+    float p[3] = {0}; // Position vector (z body to world)
+    float v[3] = {0}; // Velocity vector (vx, vy to world)
+    float a[3] = {0}; // Acceleration vector (ax, ay, az to world)
+
+    // Rotate lidar measurement to world frame
+    p[2] = data.z;
+    rotate_to_world( p );
+
+    // Perform gyrocompensation on flow and rotate to world frame.
+    // v[0] = data.vx * p[2] + data.gy * p[2];
+    // v[1] = data.vy * p[2] - data.gx * p[2]; 
+    // rotate_to_world( v );
+
+    // Rotate acceleration to world frame
+    a[0] = data.ax; a[1] = data.ay; a[2] = data.az;
+    rotate_to_world( a );
+
+
+    /* ---- Estimation ---- */
+    // Fill input vector with acceleration
+    H.Fill(0);
+    //H = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    Z.Fill(0);
+    //Z = {0,0,0,0,0,0};
+    Uest =  {a[0], a[1], a[2]};
+
+    // Fill measurement vector with data
+    // if( data.status.pos == 1 ){
+    //     H(0,0) = 1; H(1,1) = 1;
+    //     Z(0) = data.x;
+    //     Z(1) = data.y;
+    // }
+
+    if( lidar_measurement_response == 1){
+        H(2,2) = 1;
+        Z(2) = p[2]; // p[2]: z
+    }
+
+    // if( data.status.flow == 1){
+    //     H(3,3) = 1; H(4,4) = 1;
+    //     Z(3) = v[0]; // vx
+    //     Z(4) = v[1]; // vy
+    // }
+
+    // Prediction, based on previous state and current input
+    Xpre = A*Xest + B*Uest; 
+
+    // Update prediction with update using measurements 
+    Xest = Xpre + Kf*(Z - H*Xpre); 
+    
+    // Fill estimate struct with values (for telemetry and stuff)
+    estimate.x = Xest(0);
+    estimate.y = Xest(1);
+    estimate.z = Xest(2);
+    estimate.vx = Xest(3);
+    estimate.vy = Xest(4);
+    estimate.vz = Xest(5);
+
+}
