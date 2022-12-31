@@ -77,8 +77,9 @@
 #define EDF_JZZ 0.0001744f
 //MASS-MOMENT-OF-INERTIA OF REACTION WHEEL 
 #define RW_JZZ 0.00174245f
-float dt{10.00f};
-#define DT dt/1000
+#define DT_MSEC 20.00f
+#define DT_SEC DT_MSEC/1000
+
 
 using namespace BLA;
 
@@ -86,6 +87,10 @@ typedef struct
 {
 float roll, pitch, yaw; 
 float gx, gy, gz;
+float ax, ay, az;
+float axw, ayw, azw;
+float vx, vy, vz; 
+float x, y, z;
 float u1, u2, u3, u4; 
 } data_prev_t;
 
@@ -94,7 +99,9 @@ typedef struct
   float roll, pitch, yaw;
   float gx, gy, gz;
   float ax, ay, az; 
-  float x, y, z; 
+  float axw, ayw, azw;
+  float x, y, z, zraw; 
+  float vx, vy, vz;
 }data_current_t;
 
 typedef struct 
@@ -131,28 +138,28 @@ Matrix<4,1> U_hov = {0,0,0,0}; // Output vector
 Matrix<8,1> error_hov {0,0,0,0,0,0,0,0}; // State error vector
 Matrix<8,1> REF_hov = {0,0,0,0,0,0,0,0}; 
 Matrix<8,1> Xs_hov = {0,0,0,0,0,0,0,0};
-Matrix<4,8> K_hov = {  0.435003,    0.00000,      0.0000,   0.1521001,    0.0000,    0.0000,     0.00,   0.00,
-                      -0.000000,    0.435003,     0.0000,   0.000000,   0.1521001,    0.0000,    0.00,   0.00,
-                      -0.000000,    0.435003,     0.0000,   0.000000,   0.1521001,    0.0000,    0.00,   0.00,
-                       0.000000,   -0.00000,      24.80,   -0.00000,    0.0000,   0.471857,      0.00,   0.00}; 
+Matrix<4,8> K_hov = {  -0.5164,   -0.0000,    0.0000,   -0.1440,   -0.0000,    0.0000,    0.0000,    0.0000,
+                        0.0000,   -0.5164,    0.0000,   -0.0000,   -0.1440,   -0.0000,    0.0000,    0.0000,
+                       -0.0000,    0.0000,   -0.0316,   -0.0000,    0.0000,   -0.0561,    0.0000,    0.0000,
+                        0.0000,    0.0000,    0.0000,   -0.0000,    0.0000,    0.0000,   24.2536,   17.7556}; 
 
 /////////////////////// HOVER ONLY START ///////////////////////
 
 
 /////////////// Estimator matrixes Start ////////////////////////
-Matrix<6,6> A = {   1,  0,  0,  DT, 0,  0,
-                    0,  1,  0,  0,  DT, 0,
-                    0,  0,  1,  0,  0,  DT,
+Matrix<6,6> A = {   1,  0,  0,  DT_SEC, 0,  0,
+                    0,  1,  0,  0,  DT_SEC, 0,
+                    0,  0,  1,  0,  0,  DT_SEC,
                     0,  0,  0,  1,  0,  0,
                     0,  0,  0,  0,  1,  0, 
                     0,  0,  0,  0,  0,  1 };
 
-Matrix<6,3> B = {   0.5*pow(DT,2),  0,              0,         
-                    0,              0.5*pow(DT,2),  0,         
-                    0,              0,              0.5*pow(DT,2),  
-                    DT,             0,              0,         
-                    0,              DT,             0,         
-                    0,              0,              DT };
+Matrix<6,3> B = {   0.5*pow(DT_SEC,2),  0,                  0,         
+                    0,                  0.5*pow(DT_SEC,2),  0,         
+                    0,                  0,                  0.5*pow(DT_SEC,2),  
+                    DT_SEC,             0,                  0,         
+                    0,                  DT_SEC,             0,         
+                    0,                  0,                  DT_SEC };
  
 Matrix<6,6> H = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}; 
 
@@ -169,26 +176,32 @@ Matrix<6,1> Z = {0,0,0,0,0,0};
 Matrix<3,1> Uest = {0,0,0};
 
 // Estimator gain
-/* Matrix<6,6> Kf = {  0.0001,    0.0000,    0.0000,    0.0095,   -0.0000,    0.0000,
+/* 
+Matrix<6,6> Kf = {  0.0001,    0.0000,    0.0000,    0.0095,   -0.0000,    0.0000,
                     0.0000,    0.0001,   -0.0000,    0.0000,    0.0095,   -0.0000,
                     0.0000,   -0.0000,    0.1547,    0.0000,   -0.0000,    0.0000,
                     0.0000,    0.0000,    0.0000,    0.1057,   -0.0000,    0.0000,
                    -0.0000,    0.0000,   -0.0000,   -0.0000,    0.1057,   -0.0000,
-                    0.0000,   -0.0000,    1.3001,    0.0000,   -0.0000,    0.0000  }; */
+                    0.0000,   -0.0000,    1.3001,    0.0000,   -0.0000,    0.0000  }; 
+                    */
 
-/* Matrix<6,6> Kf = {  0.0345,    0.0000,   0.0000,    0.0019,    0.0000,    0.0000,
+///* 
+Matrix<6,6> Kf = {  0.0345,    0.0000,   0.0000,    0.0019,    0.0000,    0.0000,
                     0.0000,    0.0345,   0.0000,    0.0000,    0.0019,    0.0000,
                     0.0000,    0.0000,   0.0274,    0.0000,    0.0000,    0.0001,
                     0.1495,    0.0000,   0.0000,    0.0216,    0.0000,    0.0000,
                     0.0000,    0.1495,   0.0000,    0.0000,    0.0216,    0.0000,
-                    0.0000,    0.0000,   0.0767,    0.0000,    0.0000,    0.0004    }; */
+                    0.0000,    0.0000,   0.0767,    0.0000,    0.0000,    0.0004    }; 
+//                    */
 
+/*
 Matrix<6,6> Kf = {  0.618520, 0.000000, 0.000000, 0.000330, 0.000000, 0.000000,
                     0.000000, 0.618520, 0.000000, 0.000000, 0.000330, 0.000000,
                     0.000000, 0.000000, 0.318880, 0.000000, 0.000000, 0.000420,
                     0.162570, 0.000000, 0.000000, 0.131210, 0.000000, 0.000000,
                     0.000000, 0.162570, 0.000000, 0.000000, 0.131210, 0.000000,
                     0.000000, 0.000000, 4.190280, 0.000000, 0.000000, 0.045440   };
+                    */
 /////////////// Estimator matrixes End ////////////////////////
 
 
@@ -230,7 +243,7 @@ float limit(float value, float min, float max);
 float d2r(float deg);
 float r2d(float rad);
 void control_attitude(float r, float p, float y, float gx, float gy, float gz);
-void control_attitude_red(float r, float p, float y, float gx, float gy, float gz, float vz, float z);
+void control_attitude_hov(float r, float p, float y, float gx, float gy, float gz, float z, float vz);
 float LPF( float new_sample, float old_sample, float prev_output );
 float averaging(float new_sample, float old_sample);
 void writeXservo(float angle);
@@ -280,26 +293,29 @@ void loop(void)
     mst = millis();   
     startFlag = true;
   }
+
+  //run BNO as fast as the loop can
+  samplebno();
   
   //SENSOR TIMER
-  if(millis() - sensor_timer >= 10)
+  if(millis() - sensor_timer >= DT_MSEC)
   {
     sensor_timer = millis();
-    //read BNO values and load it into imu::Vector<3> euler and imu::Vector<3> gyro 
-    samplebno();
+    //samplebno();
     sampleLidar();
     //float temp_vec_rotated[2];
       
   }
 
  // CONTROLLER TIMER
-  if(millis() - control_timer >= 10)
+  if(millis() - control_timer >= DT_MSEC)
   {
     control_timer = millis(); 
     control_attitude(data.roll, data.pitch, data.yaw, data.gx, data.gy, data.gz);
+    //control_attitude_hov(data.roll, data.pitch, data.yaw, data.gx, data.gy, data.gz, estimate.z, estimate.vz);
   }
 
-  if(millis() - estTime >= 100)
+  if(millis() - estTime >= DT_MSEC)
   {
     estTime = millis();
     run_estimator();
@@ -317,7 +333,7 @@ void loop(void)
   */
 
  //PRINT/LIDAR TIMER
-  if(millis() - tavastime >= 200)
+  if(millis() - tavastime >= 100)
   {
     tavastime = millis();
     //sampleLidar();
@@ -330,7 +346,7 @@ void printLoopTime(void)
 {
   prev_time = curr_time;
   curr_time = millis();
-  dt = (curr_time - prev_time) / 1000;
+  float dt = (curr_time - prev_time) / 1000;
   Serial.print(dt,7); 
   Serial.println("\t");
 
@@ -344,6 +360,8 @@ void initBno(void)
 
   //Load the experimentally gathered calibration values into the offset struct
   adafruit_bno055_offsets_t bnoOffset;
+  /*
+  ////////////////BNO onboard Hopper//////////////
   //acceleration 
   bnoOffset.accel_offset_x = -20;
   bnoOffset.accel_offset_y = -176;
@@ -359,8 +377,29 @@ void initBno(void)
   //radii
   bnoOffset.accel_radius = -1000;
   bnoOffset.mag_radius = -776;
+  */
+////////////////BNO onboard Hopper//////////////
 
+/*
+////////////////BNO offboard Hopper//////////////
+  //acceleration 
+  bnoOffset.accel_offset_x = 13;
+  bnoOffset.accel_offset_y = -76;
+  bnoOffset.accel_offset_z = -9;
+  //mag 
+  bnoOffset.mag_offset_x = -211;
+  bnoOffset.mag_offset_y = -435;
+  bnoOffset.mag_offset_z = -590;
+  //gyro
+  bnoOffset.gyro_offset_x = -0;
+  bnoOffset.gyro_offset_y = 1;
+  bnoOffset.gyro_offset_z = 1;
+  //radii
+  bnoOffset.accel_radius = 1000;
+  bnoOffset.mag_radius = 5299;
+////////////////BNO OFFboard Hopper//////////////
   delay(20);
+  */
 
   /* Initialise the sensor */
   if (!bno.begin(OPERATION_MODE_NDOF))
@@ -369,8 +408,11 @@ void initBno(void)
     Serial.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
     //while (1);
   }
-  //Load the offsets into the BNO055 offset registers 
+  //Run the calibration loop to attain offsets 
+  calibratebno(bnoOffset);            //Comment this out if you have experimental values. 
+  //Load offset type to BNO registers 
   bno.setSensorOffsets(bnoOffset); 
+  //bno.setSensorOffsets(calibratebno());             //This will use the new calib function in setup() 
   delay(500);
 }
 
@@ -406,20 +448,20 @@ void printSerial(void)
   Serial.print(r2d(data.roll));
   Serial.print(",");  
   Serial.print(r2d(data.pitch));
-  Serial.print(",");
-  Serial.print(data.z);
-  Serial.print(",    ");
-  Serial.print(estimate.x);
-  Serial.print(",");
-  Serial.print(estimate.y);
+  Serial.print(",       ");
+  Serial.print(.z);
   Serial.print(",");
   Serial.print(estimate.z);
-  Serial.print(",      ");
+  Serial.print(",       ");
+  Serial.print(estimate.vz);
+  Serial.print(",       ");
+  Serial.print(estimate.x);
+  Serial.print(",");
   Serial.print(estimate.vx);
+  Serial.print(",       ");
+  Serial.print(estimate.y);
   Serial.print(",");
-  Serial.print(estimate.vy);
-  Serial.print(",");
-  Serial.println(estimate.vz);
+  Serial.println(estimate.vy);
   // Serial.print(r2d(U(1)));
   // Serial.print(",");
   // Serial.print(r2d(pdata.Roll));
@@ -430,32 +472,48 @@ void printSerial(void)
   //Serial.print("\t");
 }
 
-void calibratebno(void)
+void calibratebno(adafruit_bno055_offsets_t offsetType)
 {
-  /* Get the four calibration values (0..3) */
-  /* Any sensor data reporting 0 should be ignored, */
-  /* 3 means 'fully calibrated" */
-  uint8_t system, gyro, accel, mag;
-  system = gyro = accel = mag = 0;
-  bno.getCalibration(&system, &gyro, &accel, &mag);
+  /* Display calibration status for each sensor. */
+  uint8_t syst, Gyro, accel, mag = 0;
+  //adafruit_bno055_offsets_t bnoO;
+  bool done_flag = false;
+  uint8_t count{3};         //The number of times you want to achieve 3,3,3,3 calib status
 
-  /* The data should be ignored until the system calibration is > 0 */
-  Serial.print("\t");
-  if (!system)
+  while(done_flag == false)
   {
-    Serial.print("! ");
+    bno.getCalibration(&syst, &Gyro, &accel, &mag);
+    //Serial.print("CALIBRATION: Sys=");
+    bno.getSensorOffsets(offsetType);
+
+    Serial.print(syst, DEC);
+    Serial.print(", ");
+    Serial.print(Gyro, DEC);
+    Serial.print(", ");
+    Serial.print(accel, DEC);
+    Serial.print(", ");
+    Serial.println(mag, DEC);
+
+    if(syst == 3 && Gyro == 3 && accel == 3 && mag == 3){
+      count--;      // decrement count 
+      //once reached the count dec finish task 
+      if(count == 0) done_flag = true;
+    }
+    delay(100);
   }
-
-  /* Display the individual values */
-  Serial.print("Sys:");
-  Serial.print(system, DEC);
-  Serial.print(" G:");
-  Serial.print(gyro, DEC);
-  Serial.print(" A:");
-  Serial.print(accel, DEC);
-  Serial.print(" M:");
-  Serial.println(mag, DEC);
-
+  //return bnoO; 
+  Serial.println(offsetType.accel_offset_x); Serial.println(offsetType.accel_offset_y); Serial.println(offsetType.accel_offset_z);
+  Serial.println(" ");
+  Serial.println(" ");
+  Serial.println(offsetType.mag_offset_x); Serial.println(offsetType.mag_offset_y); Serial.println(offsetType.mag_offset_z);
+  Serial.println(" ");
+  Serial.println(" ");
+  Serial.println(offsetType.gyro_offset_x); Serial.println(offsetType.gyro_offset_y); Serial.println(offsetType.gyro_offset_z);
+  Serial.println(" ");
+  Serial.println(" ");
+  Serial.println(offsetType.accel_radius);
+  Serial.println(offsetType.mag_radius);
+  Serial.println("calibration is done...");
 }
 
 //This function samples the BNO055 and calculates the Euler angles and 
@@ -486,10 +544,42 @@ void samplebno(void){
   data.gz = IIR(d2r(gyro.z()), pdata.gz, 0.55);
 
   //////////ACCELERATION/////////
+  pdata.ax = data.ax; 
+  pdata.ay = data.ay; 
+  pdata.az = data.az;
   imu::Vector<3> accel = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
-  data.ax = accel.x();
-  data.ay = accel.y();
-  data.az = accel.z();
+  data.ax = IIR(accel.x(), pdata.ax, .45);
+  data.ay = IIR(accel.y(), pdata.ay, .45);
+  data.az = IIR(accel.z(), pdata.az, .45);
+
+  //integrate acell vector to get velocity vector in body frame 
+  pdata.vx = data.vx;
+  pdata.vy = data.vy;
+  pdata.vz = data.vz;
+  //performe both IIR filtering and integration in 1 line.
+  data.vx = IIR((data.ax - pdata.ax)*DT_SEC, pdata.vx, .20);
+  data.vy = IIR((data.ay - pdata.ay)*DT_SEC, pdata.vy, .20);
+  data.vz = IIR((data.ax - pdata.az)*DT_SEC, pdata.vz, .20);
+  
+  // float atemp[2] = {0}; 
+  // atemp[0] = data.ax; 
+  // atemp[1] = data.ay; 
+  // atemp[2] = data.az;
+  // rotate_to_world( atemp ); 
+  // //save previous values to prev struct
+  // pdata.axw = data.axw; 
+  // pdata.ayw = data.ayw;
+  // pdata.azw = data.azw;
+  //load current values in to current_data_t struct
+  // data.axw = atemp[0];
+  // data.ayw = atemp[1];
+  // data.azw = atemp[2];
+
+  //filter and differentiate in one step. 
+  //data.vx = 100 * IIR(DT_SEC * (atemp[0] - pdata.axw), pdata.vx, .25);
+  //data.vy = 100 * IIR(DT_SEC * (atemp[1] - pdata.ayw), pdata.vy, .25);
+  //data.vz = 100 * IIR(DT_SEC * (atemp[2] - pdata.azw), pdata.vz, .25);
+  
   
 
 }
@@ -556,10 +646,10 @@ void control_attitude(float r, float p, float y, float gx, float gy, float gz)
   pdata.u3 = U(2);
 }
 
-void control_attitude_red(float r, float p, float y, float gx, float gy, float gz, float vz, float z)
+void control_attitude_hov(float r, float p, float y, float gx, float gy, float gz, float z, float vz)
 {
   //load state vecotr 
-  Xs_hov = {r, p, y, gx, gy, gz, vz, z};
+  Xs_hov = {r, p, 0, gx, gy, 0, vz, z};
 
   //run controller 
   error_hov = Xs_hov-REF_hov; 
@@ -581,21 +671,8 @@ void control_attitude_red(float r, float p, float y, float gx, float gy, float g
   //pdata.Roll = asin(-Tx/(Tmag - pow(Ty,2)));
   //pdata.Pitch = asin(Ty/Tmag);
 
-  U_hov(0) = asin(Tx/(Tm));
-  U_hov(1) = asin(Ty/Tm);
-
-  // float u1temp = averaging(U_hov(1), prev(4));
-  // float u2temp = averaging(U_hov(2), prev(5));
-
-  //deadband 
-  //U_hov(0) = deadband(U_hov(0), pdata.u1);
-  //U_hov(1) = deadband(U_hov(1), pdata.u2);
-
-  //limit the speed of servos
-  //TODO: test the change made to the maxStep value 
-  //      given the correction to the servo angle to TVC angle 
-  //U_hov(0) = servoRateLimit(U_hov(0), pdata.u1);
-  //U_hov(1) = servoRateLimit(U_hov(1), pdata.u2);
+  //U_hov(0) = asin(Tx/(Tm));
+  //U_hov(1) = asin(Ty/Tm);
 
   //filter servo angles, the more filtering, the bigger the delay 
   U_hov(0) = IIR(U_hov(0), pdata.u1, .05);
@@ -608,11 +685,10 @@ void control_attitude_red(float r, float p, float y, float gx, float gy, float g
   //write the actuation angles to the servos 
   writeXservo(r2d(U_hov(0)));
   writeYservo(r2d(U_hov(1)));
-  //Write the thrust value (N) to the EDF motor
   writeEDF(Tm);
 
+  
   //load previous data struct for filtering etc. 
-
   pdata.u1 = U_hov(0);
   pdata.u2 = U_hov(1);
   pdata.u3 = U_hov(2);
@@ -714,7 +790,7 @@ float servoRateLimit(float new_sample, float old_sample)
   // maxSteps = dt / 0.001667  SERVO_MAX_SEC_PER_DEG = 0.001667
   // so when we do dt/0.001667 we get the degrees we can actuate 
   //dt must be in seconds 
-  float maxSteps{(dt/1000.00f)/(SERVO_MAX_SEC_PER_RAD/3.00f)};
+  float maxSteps{(DT_MSEC/1000.00f)/(SERVO_MAX_SEC_PER_RAD/3.00f)};
   float temp{new_sample};
 
   if(new_sample >= old_sample + maxSteps) temp = old_sample + maxSteps;
@@ -748,7 +824,6 @@ void suspend(void)
 
 }
 
-
 //////////////////////////////////////////////////////////////////////////
 // the functions below will be added to the sensors.cpp/sensors.h class 
 // just testing initial operations and integration before getting into software
@@ -757,15 +832,25 @@ void suspend(void)
 void initLidar(void)
 {
   Wire.begin();
-  myLidarLite.configure(0, lidarLiteAdd); 
+  // "2" = short-range, fast speed 
+  myLidarLite.configure(2, lidarLiteAdd); 
 }
 
 void sampleLidar(void)
 {
   lidar_measurement_response = distanceContinuous(&distance);
-  if(lidar_measurement_response == 1) data.z = distance/100.00f;    // convert cm measurements to m and 
-  //p[2] = (float)  distance / 100.00f;
-  //rotate_to_world( p );
+  //if(lidar_measurement_response == 1) 
+  //{
+    pdata.z = data.z;
+    data.z = distance/100.00f;    // uncomment for body measurement
+    //data.zraw = data.z; 
+    float p[2] = {0};
+    p[2] = (float)  distance / 100.00f;
+    rotate_to_world( p );
+    data.zraw = p[2]; 
+    //pdata.vz = data.vz; 
+   // data.vz = IIR((data.z - pdata.z)  / DT_SEC, pdata.vz, .10);
+  //}
 }
 
 uint8_t distanceFast(uint16_t * distance)
@@ -843,9 +928,9 @@ void run_estimator(){
     rotate_to_world( p );
 
     // Perform gyrocompensation on flow and rotate to world frame.
-    // v[0] = data.vx * p[2] + data.gy * p[2];
-    // v[1] = data.vy * p[2] - data.gx * p[2]; 
-    // rotate_to_world( v );
+    //v[0] = data.vx * p[2] + data.gy * p[2];
+    //v[1] = data.vy * p[2] - data.gx * p[2]; 
+    //rotate_to_world( v );
 
     // Rotate acceleration to world frame
     a[0] = data.ax; a[1] = data.ay; a[2] = data.az;
@@ -855,9 +940,7 @@ void run_estimator(){
     /* ---- Estimation ---- */
     // Fill input vector with acceleration
     H.Fill(0);
-    //H = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
     Z.Fill(0);
-    //Z = {0,0,0,0,0,0};
     Uest =  {a[0], a[1], a[2]};
 
     // Fill measurement vector with data
@@ -873,15 +956,17 @@ void run_estimator(){
     }
 
     // if( data.status.flow == 1){
-    //     H(3,3) = 1; H(4,4) = 1;
-    //     Z(3) = v[0]; // vx
-    //     Z(4) = v[1]; // vy
+        H(3,3) = 1; H(4,4) = 1;
+        Z(3) = v[0]; // vx
+        Z(4) = v[1]; // vy
     // }
 
     // Prediction, based on previous state and current input
     Xpre = A*Xest + B*Uest; 
+    //Ppre = A*Pk_1*transpose(A) + Qf; 
 
     // Update prediction with update using measurements 
+    //Kf = Ppre*transpose(H)*(H*Pk*transpose(H) + Rf);
     Xest = Xpre + Kf*(Z - H*Xpre); 
     
     // Fill estimate struct with values (for telemetry and stuff)
