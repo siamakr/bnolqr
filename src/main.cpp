@@ -9,6 +9,8 @@
 #include <BasicLinearAlgebra.h>
 #include <stdint.h>
 #include <LIDARLite_v3HP.h>
+#include <float.h>
+#include <String.h>
 
 // Arduino Pin assignments
 #define XSERVO_PIN 11
@@ -185,23 +187,23 @@ Matrix<6,6> Kf = {  0.0001,    0.0000,    0.0000,    0.0095,   -0.0000,    0.000
                     0.0000,   -0.0000,    1.3001,    0.0000,   -0.0000,    0.0000  }; 
                     */
 
-///* 
+/* 
 Matrix<6,6> Kf = {  0.0345,    0.0000,   0.0000,    0.0019,    0.0000,    0.0000,
                     0.0000,    0.0345,   0.0000,    0.0000,    0.0019,    0.0000,
                     0.0000,    0.0000,   0.0274,    0.0000,    0.0000,    0.0001,
                     0.1495,    0.0000,   0.0000,    0.0216,    0.0000,    0.0000,
                     0.0000,    0.1495,   0.0000,    0.0000,    0.0216,    0.0000,
                     0.0000,    0.0000,   0.0767,    0.0000,    0.0000,    0.0004    }; 
-//                    */
+                    */
 
-/*
+///*
 Matrix<6,6> Kf = {  0.618520, 0.000000, 0.000000, 0.000330, 0.000000, 0.000000,
                     0.000000, 0.618520, 0.000000, 0.000000, 0.000330, 0.000000,
                     0.000000, 0.000000, 0.318880, 0.000000, 0.000000, 0.000420,
                     0.162570, 0.000000, 0.000000, 0.131210, 0.000000, 0.000000,
                     0.000000, 0.162570, 0.000000, 0.000000, 0.131210, 0.000000,
                     0.000000, 0.000000, 4.190280, 0.000000, 0.000000, 0.045440   };
-                    */
+               //     */
 /////////////// Estimator matrixes End ////////////////////////
 
 
@@ -215,6 +217,8 @@ Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28);  // BNO055 9-axis IMU object
 data_prev_t pdata;                                // Previous Data struct object
 data_current_t data;                              // Current Data struct object
 data_estimator_t estimate;                        // Current Estimator Data Object
+
+uint8_t sys_status, self_test, sys_err; 
 
 float curr_time, prev_time;
 float previousTime, currentTime, elapsedTime;
@@ -295,13 +299,13 @@ void loop(void)
   }
 
   //run BNO as fast as the loop can
-  samplebno();
+  //samplebno();
   
   //SENSOR TIMER
   if(millis() - sensor_timer >= DT_MSEC)
   {
     sensor_timer = millis();
-    //samplebno();
+    samplebno();
     sampleLidar();
     //float temp_vec_rotated[2];
       
@@ -333,7 +337,7 @@ void loop(void)
   */
 
  //PRINT/LIDAR TIMER
-  if(millis() - tavastime >= 100)
+  if(millis() - tavastime >= DT_MSEC*4)
   {
     tavastime = millis();
     //sampleLidar();
@@ -356,7 +360,8 @@ void initBno(void)
 {
   Serial.println("Orientation Sensor Test"); Serial.println("");
   bno.begin(OPERATION_MODE_NDOF);
-  //bno.setExtCrystalUse(true);
+  Wire.setClock(400000UL); // Set I2C frequency to 400kHz (for Arduino Due)
+  bno.setExtCrystalUse(false);
 
   //Load the experimentally gathered calibration values into the offset struct
   adafruit_bno055_offsets_t bnoOffset;
@@ -380,26 +385,26 @@ void initBno(void)
   */
 ////////////////BNO onboard Hopper//////////////
 
-/*
+///*
 ////////////////BNO offboard Hopper//////////////
   //acceleration 
-  bnoOffset.accel_offset_x = 13;
+  bnoOffset.accel_offset_x = 22;
   bnoOffset.accel_offset_y = -76;
-  bnoOffset.accel_offset_z = -9;
+  bnoOffset.accel_offset_z = -4;
   //mag 
-  bnoOffset.mag_offset_x = -211;
-  bnoOffset.mag_offset_y = -435;
-  bnoOffset.mag_offset_z = -590;
+  bnoOffset.mag_offset_x = 110;
+  bnoOffset.mag_offset_y = 89;
+  bnoOffset.mag_offset_z = -1069;
   //gyro
-  bnoOffset.gyro_offset_x = -0;
-  bnoOffset.gyro_offset_y = 1;
-  bnoOffset.gyro_offset_z = 1;
+  bnoOffset.gyro_offset_x = -1;
+  bnoOffset.gyro_offset_y = -1;
+  bnoOffset.gyro_offset_z = 0;
   //radii
   bnoOffset.accel_radius = 1000;
-  bnoOffset.mag_radius = 5299;
+  bnoOffset.mag_radius = 485;
 ////////////////BNO OFFboard Hopper//////////////
   delay(20);
-  */
+//  */
 
   /* Initialise the sensor */
   if (!bno.begin(OPERATION_MODE_NDOF))
@@ -409,7 +414,7 @@ void initBno(void)
     //while (1);
   }
   //Run the calibration loop to attain offsets 
-  calibratebno(bnoOffset);            //Comment this out if you have experimental values. 
+ // calibratebno(bnoOffset);            //Comment this out if you have experimental values. 
   //Load offset type to BNO registers 
   bno.setSensorOffsets(bnoOffset); 
   //bno.setSensorOffsets(calibratebno());             //This will use the new calib function in setup() 
@@ -448,20 +453,27 @@ void printSerial(void)
   Serial.print(r2d(data.roll));
   Serial.print(",");  
   Serial.print(r2d(data.pitch));
-  Serial.print(",       ");
-  Serial.print(.z);
   Serial.print(",");
-  Serial.print(estimate.z);
-  Serial.print(",       ");
-  Serial.print(estimate.vz);
-  Serial.print(",       ");
-  Serial.print(estimate.x);
+  Serial.print(data.z);
   Serial.print(",");
-  Serial.print(estimate.vx);
-  Serial.print(",       ");
-  Serial.print(estimate.y);
+  Serial.print(sys_status);
   Serial.print(",");
-  Serial.println(estimate.vy);
+  Serial.print(sys_err);
+  Serial.print(",");
+  Serial.print(self_test);
+  Serial.print(",        ");
+  Serial.print(String( estimate.x));
+  Serial.print(",");
+  Serial.print((double) estimate.y);
+  Serial.print(",");
+  Serial.print((double) estimate.z);
+  Serial.print(",       ");
+  Serial.print((double) estimate.vx);
+  Serial.print(",");
+  Serial.print((double) estimate.vy);
+  Serial.print(",");
+  Serial.print((double) estimate.vz);
+  Serial.println(",");
   // Serial.print(r2d(U(1)));
   // Serial.print(",");
   // Serial.print(r2d(pdata.Roll));
@@ -519,17 +531,23 @@ void calibratebno(adafruit_bno055_offsets_t offsetType)
 //This function samples the BNO055 and calculates the Euler angles and 
 //gyro values, filtered, and magnetometer values for yaw/heading 
 void samplebno(void){
-
+  
   /////////EULER ANGLE////////// 
+  pdata.roll = data.roll; 
+  pdata.pitch = data.pitch; 
+  pdata.yaw = data.yaw; 
   imu::Quaternion q = bno.getQuat();
   q.normalize();
   //convert quaternions into readable Euler angles in RADIANS 
   //given conversion from quaternions, the angles will automatically be in radians
   imu::Vector<3> euler = q.toEuler();
   //load data struct and switch z and x axes (still not sure why this is like this)
-  data.roll = euler.z();
-  data.pitch = euler.y();
-  data.yaw = euler.x();
+  data.roll = isnan(euler.z()) ? pdata.roll : euler.z();
+  data.pitch = isnan(euler.y()) ? pdata.pitch : euler.y();
+  data.yaw = isnan(euler.x()) ? pdata.yaw : euler.x();
+  // data.roll = euler.z();
+  // data.pitch = euler.y();
+  // data.yaw = euler.x();
 
   //////////GYROSCOPE///////// 
   //load previous gyro data before retreiving the current data
@@ -548,18 +566,20 @@ void samplebno(void){
   pdata.ay = data.ay; 
   pdata.az = data.az;
   imu::Vector<3> accel = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
-  data.ax = IIR(accel.x(), pdata.ax, .45);
-  data.ay = IIR(accel.y(), pdata.ay, .45);
-  data.az = IIR(accel.z(), pdata.az, .45);
+  data.ax = IIR(accel.x(), pdata.ax, .05);
+  data.ay = IIR(accel.y(), pdata.ay, .05);
+  data.az = IIR(accel.z(), pdata.az, .05);
+
+  bno.getSystemStatus(sys_status, self_test, sys_err); 
 
   //integrate acell vector to get velocity vector in body frame 
-  pdata.vx = data.vx;
-  pdata.vy = data.vy;
-  pdata.vz = data.vz;
-  //performe both IIR filtering and integration in 1 line.
-  data.vx = IIR((data.ax - pdata.ax)*DT_SEC, pdata.vx, .20);
-  data.vy = IIR((data.ay - pdata.ay)*DT_SEC, pdata.vy, .20);
-  data.vz = IIR((data.ax - pdata.az)*DT_SEC, pdata.vz, .20);
+//  pdata.vx = data.vx;
+//  pdata.vy = data.vy;
+//  pdata.vz = data.vz;
+//  //performe both IIR filtering and integration in 1 line.
+//  data.vx = IIR((data.ax - pdata.ax)*DT_SEC, pdata.vx, .0);
+//  data.vy = IIR((data.ay - pdata.ay)*DT_SEC, pdata.vy, .0);
+//  //data.vz = IIR((data.az - pdata.az)*DT_SEC, pdata.vz, .20);
   
   // float atemp[2] = {0}; 
   // atemp[0] = data.ax; 
@@ -839,18 +859,19 @@ void initLidar(void)
 void sampleLidar(void)
 {
   lidar_measurement_response = distanceContinuous(&distance);
-  //if(lidar_measurement_response == 1) 
-  //{
+//  if(lidar_measurement_response == 1) 
+//  {
     pdata.z = data.z;
-    data.z = distance/100.00f;    // uncomment for body measurement
+    data.z = distance/100;    // uncomment for body measurement
     //data.zraw = data.z; 
-    float p[2] = {0};
-    p[2] = (float)  distance / 100.00f;
-    rotate_to_world( p );
-    data.zraw = p[2]; 
+//    float p[2] = {0};
+//    p[2] = (float)  distance / 100.00f;
+//    rotate_to_world( p );
+//    data.zraw = p[2]; 
     //pdata.vz = data.vz; 
    // data.vz = IIR((data.z - pdata.z)  / DT_SEC, pdata.vz, .10);
-  //}
+//  }
+  
 }
 
 uint8_t distanceFast(uint16_t * distance)
@@ -861,6 +882,7 @@ uint8_t distanceFast(uint16_t * distance)
 
   // 2. Trigger range measurement.
   myLidarLite.takeRange();
+  myLidarLite.waitForBusy();
 
   // 3. Read previous distance data from device registers.
   //    After starting a measurement we can immediately read previous
@@ -928,9 +950,9 @@ void run_estimator(){
     rotate_to_world( p );
 
     // Perform gyrocompensation on flow and rotate to world frame.
-    //v[0] = data.vx * p[2] + data.gy * p[2];
-    //v[1] = data.vy * p[2] - data.gx * p[2]; 
-    //rotate_to_world( v );
+   // v[0] = data.vx ;
+  //  v[1] = data.vy ; 
+  //  rotate_to_world( v );
 
     // Rotate acceleration to world frame
     a[0] = data.ax; a[1] = data.ay; a[2] = data.az;
@@ -956,9 +978,9 @@ void run_estimator(){
     }
 
     // if( data.status.flow == 1){
-        H(3,3) = 1; H(4,4) = 1;
-        Z(3) = v[0]; // vx
-        Z(4) = v[1]; // vy
+      //  H(3,3) = 1; H(4,4) = 1;
+      //  Z(3) = v[0]; // vx
+     //   Z(4) = v[1]; // vy
     // }
 
     // Prediction, based on previous state and current input
