@@ -79,7 +79,7 @@
 #define EDF_JZZ 0.0001744f
 //MASS-MOMENT-OF-INERTIA OF REACTION WHEEL 
 #define RW_JZZ 0.00174245f
-#define DT_MSEC 20.00f
+#define DT_MSEC 5.00f
 #define DT_SEC DT_MSEC/1000
 
 
@@ -91,8 +91,8 @@ float roll, pitch, yaw;
 float gx, gy, gz;
 float ax, ay, az;
 float axw, ayw, azw;
-float vx, vy, vz; 
-float x, y, z;
+float vx, vy, vzi, vzl, vz; 
+float x, y, zb, z;
 float u1, u2, u3, u4; 
 } data_prev_t;
 
@@ -103,7 +103,8 @@ typedef struct
   float ax, ay, az; 
   float axw, ayw, azw;
   float x, y, z, zraw; 
-  float vx, vy, vz;
+  float vx, vy, vzi, vzl, vz;
+  float u1, u2, u3, u4, Tz, Tmag, ang1, ang2; 
 }data_current_t;
 
 typedef struct 
@@ -143,7 +144,7 @@ Matrix<8,1> Xs_hov = {0,0,0,0,0,0,0,0};
 Matrix<4,8> K_hov = {  -0.5164,   -0.0000,    0.0000,   -0.1440,   -0.0000,    0.0000,    0.0000,    0.0000,
                         0.0000,   -0.5164,    0.0000,   -0.0000,   -0.1440,   -0.0000,    0.0000,    0.0000,
                        -0.0000,    0.0000,   -0.0316,   -0.0000,    0.0000,   -0.0561,    0.0000,    0.0000,
-                        0.0000,    0.0000,    0.0000,   -0.0000,    0.0000,    0.0000,   24.2536,   17.7556}; 
+                        0.0000,    0.0000,    0.0000,   -0.0000,    0.0000,    0.0000,   75.2536,   24.2536}; 
 
 /////////////////////// HOVER ONLY START ///////////////////////
 
@@ -225,6 +226,9 @@ float previousTime, currentTime, elapsedTime;
 float control_timer{0};
 float sensor_timer{0};
 
+////////////////////
+float thrust_mag;
+
 //lidar stuff
 uint8_t lidarLiteAdd{0x62};
 uint16_t distance;
@@ -271,6 +275,7 @@ uint8_t distanceFast(uint16_t * distance);
 void rotate_to_world( float * vector );
 void printLoopTime(void);
 uint8_t distanceContinuous(uint16_t * distance);
+void run_kalman_estimator();
 void run_estimator();
 
 
@@ -310,20 +315,21 @@ void loop(void)
     //float temp_vec_rotated[2];
       
   }
+    if(millis() - estTime >= DT_MSEC)
+  {
+    estTime = millis();
+    run_estimator();
+  }
 
  // CONTROLLER TIMER
   if(millis() - control_timer >= DT_MSEC)
   {
     control_timer = millis(); 
-    control_attitude(data.roll, data.pitch, data.yaw, data.gx, data.gy, data.gz);
-    //control_attitude_hov(data.roll, data.pitch, data.yaw, data.gx, data.gy, data.gz, estimate.z, estimate.vz);
+    REF_hov = {0,0,0, 0,0,0, 1.00f,0};
+    //control_attitude(data.roll, data.pitch, data.yaw, data.gx, data.gy, data.gz);
+    control_attitude_hov(data.roll, data.pitch, data.yaw, data.gx, data.gy, data.gz, data.z, data.vzl);
   }
 
-  if(millis() - estTime >= DT_MSEC)
-  {
-    estTime = millis();
-    run_estimator();
-  }
 
   // RUN THROUGH STEP RESPONSES. 
   /*
@@ -449,30 +455,78 @@ void init_edf(void)
 
 void printSerial(void)
 {
+  /*
   //Serial.print("r: ");
   Serial.print(r2d(data.roll));
   Serial.print(",");  
   Serial.print(r2d(data.pitch));
   Serial.print(",");
+  Serial.print(r2d(data.yaw));
+  Serial.print(",  \t");
+
+  Serial.print(data.ax);
+  Serial.print(",");
+  Serial.print(data.ay);
+  Serial.print(",");
+  Serial.print(data.az);
+  Serial.print(",  \t");
+
+  Serial.print(data.vx);
+  Serial.print(",");
+  Serial.print(data.vy);
+  Serial.print(",");
+  Serial.print(data.vzi);
+  Serial.print(",");
+  Serial.print(data.vzl);
+  Serial.print(",  \t");
+
+  Serial.print(data.x);
+  Serial.print(",");
+  Serial.print(data.y);
+  Serial.print(",");
   Serial.print(data.z);
   Serial.print(",");
-  Serial.print(sys_status);
+  Serial.print(data.zraw);
+  Serial.print(",  \t");
+  */
+
+ // /*
+  Serial.print(r2d(data.roll));
+  Serial.print(",");  
+  Serial.print(r2d(data.pitch));
   Serial.print(",");
-  Serial.print(sys_err);
+  Serial.print(r2d(data.yaw));
+  Serial.print(",  \t");
+  
+  Serial.print(data.z);
   Serial.print(",");
-  Serial.print(self_test);
-  Serial.print(",        ");
-  Serial.print(String( estimate.x));
+  Serial.print(100*data.vzl);
+  Serial.print(",  \t");
+  
+  Serial.print(r2d(U_hov(0)));
   Serial.print(",");
-  Serial.print((double) estimate.y);
+  Serial.print(r2d(data.ang1));
   Serial.print(",");
-  Serial.print((double) estimate.z);
-  Serial.print(",       ");
-  Serial.print((double) estimate.vx);
+  Serial.print(r2d(U_hov(1)));
   Serial.print(",");
-  Serial.print((double) estimate.vy);
+  Serial.print(r2d(data.ang2));
+  Serial.print(",  \t");
+  
+  Serial.print(U_hov(2));
   Serial.print(",");
-  Serial.print((double) estimate.vz);
+  Serial.print(U_hov(3));
+  Serial.print(",");
+  Serial.print(data.Tz);
+  Serial.print(",");
+  Serial.print(data.Tmag);
+ // */
+
+  // Serial.print(",       ");
+  // Serial.print((double) estimate.vx);
+  // Serial.print(",");
+  // Serial.print((double) estimate.vy);
+  // Serial.print(",");
+  // Serial.print((double) estimate.vz);
   Serial.println(",");
   // Serial.print(r2d(U(1)));
   // Serial.print(",");
@@ -570,7 +624,6 @@ void samplebno(void){
   data.ay = IIR(accel.y(), pdata.ay, .05);
   data.az = IIR(accel.z(), pdata.az, .05);
 
-  bno.getSystemStatus(sys_status, self_test, sys_err); 
 
   //integrate acell vector to get velocity vector in body frame 
 //  pdata.vx = data.vx;
@@ -668,12 +721,19 @@ void control_attitude(float r, float p, float y, float gx, float gy, float gz)
 
 void control_attitude_hov(float r, float p, float y, float gx, float gy, float gz, float z, float vz)
 {
+  // load prev struct with prev values 
+  pdata.u1 = data.u1;
+  pdata.u2 = data.u2;
+  pdata.u3 = data.u3;
+  pdata.u4 = data.u4;
   //load state vecotr 
-  Xs_hov = {r, p, 0, gx, gy, 0, vz, z};
+  Xs_hov = {r, p, 0, gx, gy, 0, z, vz};
 
   //run controller 
   error_hov = Xs_hov-REF_hov; 
   U_hov = -K_hov * error_hov; 
+
+ 
 
   //load desired torque vector
   //  float tx = U(2)*sin(U(0))*COM_TO_TVC;
@@ -681,11 +741,12 @@ void control_attitude_hov(float r, float p, float y, float gx, float gy, float g
   //  float tz = U(2);
 
   //load new Thrust Vector from desired torque
-  float Tx{ -U_hov(2) * sin(U_hov(0)) }; 
-  float Ty{ -U_hov(2) * sin(U_hov(1)) * cos(U_hov(0)) }; 
-  float Tz{  U_hov(2) * cos(U_hov(1)) * cos(U_hov(0)) };           //constant for now, should be coming from position controller 
+  float Tx{ -U_hov(3) * sin(U_hov(0)) }; 
+  float Ty{ -U_hov(3) * sin(U_hov(1)) * cos(U_hov(0)) }; 
+  float Tz{  U_hov(3) * cos(U_hov(1)) * cos(U_hov(0)) };           //constant for now, should be coming from position controller 
 
   float Tm = sqrt(pow(Tx,2) + pow(Ty,2) + pow(Tz,2)); 
+  thrust_mag = Tm; 
   
   //different way to deduce servo angles from body forces (got this from a paper I can send you)
   //pdata.Roll = asin(-Tx/(Tmag - pow(Ty,2)));
@@ -709,10 +770,14 @@ void control_attitude_hov(float r, float p, float y, float gx, float gy, float g
 
   
   //load previous data struct for filtering etc. 
-  pdata.u1 = U_hov(0);
-  pdata.u2 = U_hov(1);
-  pdata.u3 = U_hov(2);
-  pdata.u4 = U_hov(3);
+  data.u1 = U_hov(0);
+  data.u2 = U_hov(1);
+  data.u3 = U_hov(2);
+  data.u4 = U_hov(3);
+  data.Tz = Tz; 
+  data.Tmag = Tm; 
+  data.ang1 = asin(Tx/Tm); 
+  data.ang2 = asin(Ty/Tm);
 }
 
 float r2d(float rad)
@@ -859,10 +924,10 @@ void initLidar(void)
 void sampleLidar(void)
 {
   lidar_measurement_response = distanceContinuous(&distance);
-//  if(lidar_measurement_response == 1) 
-//  {
-    pdata.z = data.z;
-    data.z = distance/100;    // uncomment for body measurement
+  if(lidar_measurement_response == 1) 
+  {
+    pdata.zb = data.zraw;
+    data.zraw = distance/100.00f;    // uncomment for body measurement
     //data.zraw = data.z; 
 //    float p[2] = {0};
 //    p[2] = (float)  distance / 100.00f;
@@ -870,7 +935,8 @@ void sampleLidar(void)
 //    data.zraw = p[2]; 
     //pdata.vz = data.vz; 
    // data.vz = IIR((data.z - pdata.z)  / DT_SEC, pdata.vz, .10);
-//  }
+  }
+
   
 }
 
@@ -915,6 +981,25 @@ uint8_t distanceContinuous(uint16_t * distance)
 
     return newDistance;
 }
+
+uint8_t distanceSingle(uint16_t * distance)
+{
+    // 1. Wait for busyFlag to indicate device is idle. This must be
+    //    done before triggering a range measurement.
+    myLidarLite.waitForBusy();
+
+    // 2. Trigger range measurement.
+    myLidarLite.takeRange();
+
+    // 3. Wait for busyFlag to indicate device is idle. This should be
+    //    done before reading the distance data that was triggered above.
+    myLidarLite.waitForBusy();
+
+    // 4. Read new distance data from device registers
+    *distance = myLidarLite.readDistance();
+
+    return 1;
+}
 //////////////////////////////////////////////////////////////////////////////
 
 void rotate_to_world( float * vector )
@@ -938,7 +1023,7 @@ void rotate_to_world( float * vector )
 
 }
 
-void run_estimator(){
+void run_kalman_estimator(){
 
     /* ---- Sensor processing ---- */
     float p[3] = {0}; // Position vector (z body to world)
@@ -999,4 +1084,51 @@ void run_estimator(){
     estimate.vy = Xest(4);
     estimate.vz = Xest(5);
 
+}
+
+void run_estimator()
+{
+  float atemp[2] = {0}; 
+  float ltemp[2] = {0};
+
+  //save previous values to prev struct
+  pdata.axw = data.axw; 
+  pdata.ayw = data.ayw;
+  pdata.azw = data.azw;
+
+  pdata.vx = data.vx; 
+  pdata.vy = data.vy; 
+  pdata.vzi = data.vzi; 
+  pdata.vzl = data.vzl;
+
+  pdata.x = data.x; 
+  pdata.y = data.y; 
+  pdata.z = data.z;
+
+  atemp[0] = data.ax; 
+  atemp[1] = data.ay; 
+  atemp[2] = data.az;
+  rotate_to_world( atemp ); 
+
+  //load current values in to current_data_t struct
+  data.axw = atemp[0];
+  data.ayw = atemp[1];
+  data.azw = atemp[2];
+
+  //filter and differentiate in one step. 
+  data.vx =  IIR(DT_SEC * (atemp[0] - pdata.axw), pdata.vx, .05);
+  data.vy =  IIR(DT_SEC * (atemp[1] - pdata.ayw), pdata.vy, .05);
+  data.vzi =  IIR(DT_SEC * (atemp[2] - pdata.azw), pdata.vzi, .05);
+
+  data.x = IIR((data.vx - pdata.vx) * DT_SEC, pdata.x, 0.05);
+  data.y = IIR((data.vy - pdata.vy) * DT_SEC, pdata.y, 0.05);
+  //data.x = IIR((data.vx - pdata.vx) * DT_SEC, pdata.x, 0.05);
+
+  // rotate lidar measurement to world and integrate for vz_idar 
+  ltemp[2] = data.zraw; 
+  rotate_to_world( ltemp ); 
+  data.z = ltemp[2]; 
+
+  // calculate vzworld from lidar measurement 
+  data.vzl = IIR((data.z - pdata.z) / DT_MSEC, pdata.vzl, 0.05); 
 }
