@@ -20,6 +20,7 @@
 
 #define COM_TO_TVC 0.1335
 #define MASS 2.458                    //Kg
+#define G 9.87
 #define MAX_ANGLE_SERVO 15           //Deg
 // #define X 0
 // #define Y 1
@@ -144,7 +145,7 @@ Matrix<8,1> Xs_hov = {0,0,0,0,0,0,0,0};
 Matrix<4,8> K_hov = {  -0.5164,   -0.0000,    0.0000,   -0.1440,   -0.0000,    0.0000,    0.0000,    0.0000,
                         0.0000,   -0.5164,    0.0000,   -0.0000,   -0.1440,   -0.0000,    0.0000,    0.0000,
                        -0.0000,    0.0000,   -0.0316,   -0.0000,    0.0000,   -0.0561,    0.0000,    0.0000,
-                        0.0000,    0.0000,    0.0000,   -0.0000,    0.0000,    0.0000,   75.2536,   24.2536}; 
+                        0.0000,    0.0000,    0.0000,   -0.0000,    0.0000,    0.0000,   9.5346,   12.1599}; 
 
 /////////////////////// HOVER ONLY START ///////////////////////
 
@@ -311,13 +312,15 @@ void loop(void)
   {
     sensor_timer = millis();
     samplebno();
-    sampleLidar();
+    //sampleLidar();
     //float temp_vec_rotated[2];
       
   }
-    if(millis() - estTime >= DT_MSEC)
+    if(millis() - estTime >= DT_MSEC*2)
   {
     estTime = millis();
+    sampleLidar();
+    delay(0.1);
     run_estimator();
   }
 
@@ -327,7 +330,7 @@ void loop(void)
     control_timer = millis(); 
     REF_hov = {0,0,0, 0,0,0, 1.00f,0};
     //control_attitude(data.roll, data.pitch, data.yaw, data.gx, data.gy, data.gz);
-    control_attitude_hov(data.roll, data.pitch, data.yaw, data.gx, data.gy, data.gz, data.z, data.vzl);
+    control_attitude_hov(data.roll, data.pitch, data.yaw, data.gx, data.gy, data.gz, data.z, data.vzi);
   }
 
 
@@ -343,7 +346,7 @@ void loop(void)
   */
 
  //PRINT/LIDAR TIMER
-  if(millis() - tavastime >= DT_MSEC*4)
+  if(millis() - tavastime >= 100)
   {
     tavastime = millis();
     //sampleLidar();
@@ -501,6 +504,10 @@ void printSerial(void)
   Serial.print(data.z);
   Serial.print(",");
   Serial.print(100*data.vzl);
+  Serial.print(",");
+  Serial.print(100*data.vzi);
+  Serial.print(",");
+  Serial.print(100*data.vz);
   Serial.print(",  \t");
   
   Serial.print(r2d(U_hov(0)));
@@ -732,7 +739,7 @@ void control_attitude_hov(float r, float p, float y, float gx, float gy, float g
   //run controller 
   error_hov = Xs_hov-REF_hov; 
   U_hov = -K_hov * error_hov; 
-
+  U_hov(3) += MASS * G; 
  
 
   //load desired torque vector
@@ -740,7 +747,13 @@ void control_attitude_hov(float r, float p, float y, float gx, float gy, float g
   //  float ty = U(2)*sin(U(1))*COM_TO_TVC;
   //  float tz = U(2);
 
+  /*
   //load new Thrust Vector from desired torque
+  float Tx{ -U_hov(3) * sin(U_hov(0)) }; 
+  float Ty{ -U_hov(3) * sin(U_hov(1)) * cos(U_hov(0)) }; 
+  float Tz{  U_hov(3) * cos(U_hov(1)) * cos(U_hov(0)) };           //constant for now, should be coming from position controller 
+  */
+
   float Tx{ -U_hov(3) * sin(U_hov(0)) }; 
   float Ty{ -U_hov(3) * sin(U_hov(1)) * cos(U_hov(0)) }; 
   float Tz{  U_hov(3) * cos(U_hov(1)) * cos(U_hov(0)) };           //constant for now, should be coming from position controller 
@@ -1128,6 +1141,9 @@ void run_estimator()
   ltemp[2] = data.zraw; 
   rotate_to_world( ltemp ); 
   data.z = ltemp[2]; 
+
+  //testing complimentary filter for vzi and vzl 
+  data.vz = LPF(data.vzi, data.vzl, .50);
 
   // calculate vzworld from lidar measurement 
   data.vzl = IIR((data.z - pdata.z) / DT_MSEC, pdata.vzl, 0.05); 
